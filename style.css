@@ -2,69 +2,59 @@ html, body {
   height: 100%;
   margin: 0;
   background: #0b0f14;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 }
 
 #map {
-  position: fixed;
-  inset: 0;
+  height: 100vh;
+  width: 100vw;
 }
 
 .panel {
-  position: fixed;
-  top: 14px;
-  left: 14px;
-  width: min(340px, calc(100vw - 28px));
-  background: rgba(20, 26, 35, 0.82);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  color: #e8eef7;
-  padding: 12px 12px 10px 12px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+  position: absolute;
+  top: 12px;
+  left: 12px;
   z-index: 1000;
+  width: 290px;
+  max-width: calc(100vw - 24px);
+  padding: 12px 12px 10px;
+  border-radius: 12px;
+  background: rgba(20, 25, 32, 0.78);
+  backdrop-filter: blur(10px);
+  color: #e7eef7;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
 }
 
 .panel-title {
   font-weight: 700;
-  font-size: 15px;
   margin-bottom: 10px;
 }
 
 .btn {
   width: 100%;
   border: none;
-  cursor: pointer;
-  padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(58, 77, 120, 0.55);
-  color: #fff;
-  font-weight: 700;
-  margin-bottom: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: #233046;
+  color: #e7eef7;
+  font-weight: 650;
 }
 
 .btn:active {
-  transform: scale(0.99);
+  transform: translateY(1px);
 }
 
-.status {
-  min-height: 18px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
-  margin-bottom: 8px;
-}
-
-.status.error {
-  color: #ff9aa2;
+.section {
+  margin-top: 10px;
 }
 
 .chk {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 4px;
+  margin: 8px 0;
   user-select: none;
-  font-size: 14px;
 }
 
 .chk input {
@@ -72,43 +62,30 @@ html, body {
   height: 18px;
 }
 
-.spacer {
-  height: 8px;
+.status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #ffb3b3;
+  min-height: 16px;
+  white-space: pre-wrap;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.muted {
+  opacity: 0.85;
 }
 
 .row {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  font-size: 13px;
-  margin-top: 2px;
-  margin-bottom: 6px;
+  gap: 10px;
+  margin-top: 6px;
 }
 
-.row-title {
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.row-value {
-  color: rgba(255, 255, 255, 0.95);
-  font-weight: 700;
-}
-
-#hourSlider {
-  width: 100%;
-}
-
-.meta {
-  margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.muted {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-/* Evita “pagine bianche” se Leaflet non trova altezza */
-.leaflet-container {
-  background: #0b0f14;
+/* IMPORTANTISSIMO: evita “puntinatura” tipo pixel art quando zoommi */
+.leaflet-image-layer {
+  image-rendering: auto;
 }

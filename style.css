@@ -1,93 +1,91 @@
 html, body {
   margin: 0;
+  padding: 0;
   height: 100%;
+  width: 100%;
+  background: #0b0f17;
+  overflow: hidden;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  background: #0b0b0e;
 }
 
 #map {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: 100vh;
 }
 
-#panel {
+.panel {
   position: fixed;
-  top: 18px;
-  left: 18px;
-  width: min(360px, calc(100vw - 36px));
-  padding: 16px 16px 14px;
-  border-radius: 18px;
-  background: rgba(20, 20, 28, 0.72);
+  top: 14px;
+  left: 14px;
+  width: 280px;
+  max-width: calc(100vw - 28px);
+  padding: 14px;
+  background: rgba(20, 25, 35, 0.78);
   backdrop-filter: blur(10px);
-  color: #fff;
-  box-shadow: 0 10px 35px rgba(0,0,0,0.35);
-}
-
-#title {
-  font-weight: 700;
-  font-size: 18px;
-  margin-bottom: 10px;
-}
-
-#reload {
-  width: 100%;
-  border: none;
-  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
-  background: #22283a;
-  color: #fff;
-  font-weight: 650;
+  color: #e8eefc;
+  z-index: 10;
+}
+
+.title {
+  font-weight: 700;
   margin-bottom: 10px;
 }
 
-#reload:active { transform: scale(0.99); }
-
-#status {
-  font-size: 13px;
-  opacity: 0.95;
+.btn {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #2a3242;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
   margin-bottom: 10px;
+}
+
+.status {
   min-height: 18px;
+  font-size: 12px;
+  opacity: 0.9;
+  margin-bottom: 6px;
+  color: #ffd18a;
 }
 
 .chk {
+  display: block;
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.sliderRow {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 8px 0;
-  user-select: none;
-}
-
-.chk input { width: 18px; height: 18px; }
-
-.sep {
-  height: 1px;
-  background: rgba(255,255,255,0.12);
-  margin: 10px 0;
-}
-
-.row {
-  display: flex;
-  align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 14px;
+  margin-top: 10px;
   margin-bottom: 6px;
 }
 
-#lead {
+.sliderLabel {
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+.sliderValue {
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+#hour {
   width: 100%;
 }
 
 .meta {
   margin-top: 10px;
   font-size: 12px;
-  opacity: 0.85;
+  opacity: 0.9;
   line-height: 1.35;
-}
-
-/* Overlay canvas (vento particelle) */
-#windCanvas {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
 }

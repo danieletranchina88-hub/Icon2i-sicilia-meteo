@@ -1,291 +1,283 @@
-// app.js
-// Gestisce: mappa Leaflet, cache-busting, caricamento meta, slider, layer scalari raster + vento.
+(() => {
+  // CACHE BUSTER: evita “oggi vedo, domani no” su GitHub Pages
+  const CACHE_V = Date.now();
 
-(function () {
-  const $ = (id) => document.getElementById(id);
+  const statusEl = document.getElementById("status");
+  const btnReload = document.getElementById("btnReload");
 
-  const statusEl = $("status");
-  const runLabel = $("runLabel");
-  const hourLabel = $("hourLabel");
-  const hourSlider = $("hourSlider");
-  const reloadBtn = $("reloadBtn");
+  const chkTemp = document.getElementById("chkTemp");
+  const chkRain = document.getElementById("chkRain");
+  const chkPres = document.getElementById("chkPres");
+  const chkWind = document.getElementById("chkWind");
 
-  let version = Date.now();          // cache-buster
-  let meta = null;                   // data/meta.json
-  let activeKey = null;              // "temp" | "rain" | "pres" | "wind"
-  let activeLayer = null;            // Leaflet layer corrente
+  const timeSlider = document.getElementById("timeSlider");
+  const timeLabel = document.getElementById("timeLabel");
+  const runLabel = document.getElementById("runLabel");
+  const sourceLabel = document.getElementById("sourceLabel");
 
-  // Mappa
   const map = L.map("map", {
     zoomControl: true,
-    preferCanvas: true
+    attributionControl: true
   });
 
-  // Base OSM (come mi hai chiesto)
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "© OpenStreetMap"
-  }).addTo(map);
+  // Base map: OpenStreetMap
+  const osm = L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }
+  ).addTo(map);
 
-  // Inquadra Sicilia circa
-  map.setView([37.4, 14.1], 7);
+  // Parti già comodo su Sicilia
+  map.setView([37.5, 14.2], 7);
 
-  function setStatus(msg, isError = false) {
+  let meta = null;              // run.json
+  let currentIndex = 0;         // step previsione
+  let overlays = {
+    temp: null,
+    rain: null,
+    pres: null,
+    wind: null
+  };
+
+  function setStatus(msg) {
     statusEl.textContent = msg || "";
-    statusEl.className = "status" + (isError ? " error" : "");
   }
 
-  function pad3(n) {
-    return String(n).padStart(3, "0");
+  function fmtHourLabel(i) {
+    if (!meta || !meta.times || !meta.times[i]) return String(i);
+    return meta.times[i];
   }
 
   async function fetchText(url) {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status} su ${url}`);
-    return await res.text();
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status} su ${url}`);
+    return await r.text();
   }
 
-  async function loadJSONSanitized(url) {
-    // scarico come testo e sostituisco NaN/Infinity con null così diventa JSON valido
-    const raw = await fetchText(url);
-    const fixed = raw
+  function safeJsonParse(text) {
+    // TRUCCO: convertiamo NaN/Infinity in null così JSON.parse non esplode.
+    // (è il tuo problema principale nei layer temp/rain/pres)
+    const cleaned = text
       .replace(/\bNaN\b/g, "null")
       .replace(/\bInfinity\b/g, "null")
       .replace(/\b-Infinity\b/g, "null");
-    return JSON.parse(fixed);
+    return JSON.parse(cleaned);
   }
 
-  function clearActiveLayer() {
-    if (activeLayer) {
-      map.removeLayer(activeLayer);
-      activeLayer = null;
+  async function loadMeta() {
+    // se hai run.json in /data
+    const url = `${DATA_DIR}/run.json?v=${CACHE_V}`;
+    const txt = await fetchText(url);
+    return safeJsonParse(txt);
+  }
+
+  function gridBounds(bbox) {
+    return [
+      [bbox[1], bbox[0]], // [minLat, minLon]
+      [bbox[3], bbox[2]]  // [maxLat, maxLon]
+    ];
+  }
+
+  function removeOverlay(key) {
+    if (overlays[key]) {
+      map.removeLayer(overlays[key]);
+      overlays[key] = null;
     }
   }
 
-  // Palette: interpolazione tra colori
-  function clamp01(t) { return Math.max(0, Math.min(1, t)); }
-
-  function colorFromPalette(palette, t) {
-    if (!palette || palette.length === 0) return [0, 0, 0, 0];
-    t = clamp01(t);
-
-    // palette può contenere anche RGBA (4 componenti) per rain
-    const n = palette.length;
-    const x = t * (n - 1);
-    const i = Math.floor(x);
-    const f = x - i;
-
-    const c0 = palette[i];
-    const c1 = palette[Math.min(n - 1, i + 1)];
-
-    const r0 = c0[0], g0 = c0[1], b0 = c0[2], a0 = (c0.length === 4 ? c0[3] : 255);
-    const r1 = c1[0], g1 = c1[1], b1 = c1[2], a1 = (c1.length === 4 ? c1[3] : 255);
-
-    const r = Math.round(r0 + (r1 - r0) * f);
-    const g = Math.round(g0 + (g1 - g0) * f);
-    const b = Math.round(b0 + (b1 - b0) * f);
-    const a = Math.round(a0 + (a1 - a0) * f);
-
-    return [r, g, b, a];
+  function removeAll() {
+    removeOverlay("temp");
+    removeOverlay("rain");
+    removeOverlay("pres");
+    removeOverlay("wind");
   }
 
-  function renderScalarToDataURL(json, fieldCfg) {
-    const nx = json.nx;
-    const ny = json.ny;
-    const values = json.values || [];
-    const bbox = json.bbox;
+  function fitToGrid(grid) {
+    if (!grid || !grid.bbox) return;
+    const b = gridBounds(grid.bbox);
+    map.fitBounds(b, { padding: [20, 20] });
+  }
 
-    if (!nx || !ny || !bbox || bbox.length !== 4) {
-      throw new Error("JSON layer: manca nx/ny/bbox");
+  function normalizeScalar(v) {
+    if (v == null) return null;
+    const n = Number(v);
+    if (!isFinite(n)) return null;
+    return n;
+  }
+
+  function drawScalarRaster(grid, layerCfg) {
+    const { nx, ny, bbox, values } = grid;
+    if (!nx || !ny || !bbox || !Array.isArray(values)) {
+      throw new Error("Grid scalare non valido (nx/ny/bbox/values).");
     }
 
     const canvas = document.createElement("canvas");
     canvas.width = nx;
     canvas.height = ny;
-    const ctx = canvas.getContext("2d", { willReadFrequently: false });
+    const ctx = canvas.getContext("2d", { alpha: true });
 
     const img = ctx.createImageData(nx, ny);
-    const data = img.data;
 
-    const vmin = fieldCfg.vmin;
-    const vmax = fieldCfg.vmax;
-    const pal = fieldCfg.palette;
+    const vmin = layerCfg.min;
+    const vmax = layerCfg.max;
 
-    // Assunzione: l’array è row-major e parte dal “nord” (y=0 -> maxLat).
-    // Leaflet imageOverlay si aspetta che la riga 0 dell’immagine sia in alto (nord). Quindi così va bene.
-    // Se un domani ti accorgi che è capovolta, basta invertire il calcolo di srcY (ma ora non lo faccio a caso).
-    for (let y = 0; y < ny; y++) {
-      for (let x = 0; x < nx; x++) {
-        const i = y * nx + x;
-        const v = values[i];
+    for (let i = 0; i < nx * ny; i++) {
+      const raw = normalizeScalar(values[i]);
+      const p = i * 4;
 
-        const p = (y * nx + x) * 4;
-
-        if (v === null || v === undefined || !isFinite(v)) {
-          data[p + 0] = 0;
-          data[p + 1] = 0;
-          data[p + 2] = 0;
-          data[p + 3] = 0; // trasparente
-          continue;
-        }
-
-        const t = (v - vmin) / (vmax - vmin);
-        const [r, g, b, a] = colorFromPalette(pal, t);
-
-        data[p + 0] = r;
-        data[p + 1] = g;
-        data[p + 2] = b;
-        data[p + 3] = a;
+      if (raw == null) {
+        img.data[p + 0] = 0;
+        img.data[p + 1] = 0;
+        img.data[p + 2] = 0;
+        img.data[p + 3] = 0; // trasparente
+        continue;
       }
+
+      const t = (raw - vmin) / (vmax - vmin);
+      const c = layerCfg.color(t);
+
+      img.data[p + 0] = c[0];
+      img.data[p + 1] = c[1];
+      img.data[p + 2] = c[2];
+      img.data[p + 3] = c[3] ?? 255;
     }
 
     ctx.putImageData(img, 0, 0);
 
-    // un po’ di smoothing visivo per evitare look “a griglia”
-    // (Leaflet poi scala l’immagine durante lo zoom)
-    const url = canvas.toDataURL("image/png");
-    return { url, bbox };
-  }
-
-  async function showScalarLayer(key, hourIdx) {
-    const cfg = window.FIELDS[key];
-    if (!cfg) throw new Error(`Layer sconosciuto: ${key}`);
-
-    const file = cfg.prefix + pad3(hourIdx) + ".json";
-    const url = `${file}?v=${version}`;
-
-    setStatus(`Carico ${cfg.label} (${pad3(hourIdx)})…`);
-
-    const json = await loadJSONSanitized(url);
-
-    const rendered = renderScalarToDataURL(json, cfg);
-    const bbox = rendered.bbox;
-
-    const bounds = L.latLngBounds(
-      [bbox[1], bbox[0]], // minLat, minLon
-      [bbox[3], bbox[2]]  // maxLat, maxLon
-    );
-
-    const overlay = L.imageOverlay(rendered.url, bounds, {
-      opacity: 0.72,
+    const bounds = gridBounds(bbox);
+    const overlay = L.imageOverlay(canvas.toDataURL("image/png"), bounds, {
+      opacity: 0.85,
       interactive: false
     });
 
-    clearActiveLayer();
-    activeLayer = overlay.addTo(map);
+    return overlay;
+  }
+
+  async function loadGrid(prefix, stepIndex) {
+    const file = `${prefix}${pad3(stepIndex)}.json`;
+    const url = `${DATA_DIR}/${file}?v=${CACHE_V}`;
+    const txt = await fetchText(url);
+    return safeJsonParse(txt);
+  }
+
+  async function updateLayers() {
+    if (!meta) return;
 
     setStatus("");
-  }
 
-  async function showWindLayer(hourIdx) {
-    const file = "data/wind_" + pad3(hourIdx) + ".json";
-    const url = `${file}?v=${version}`;
+    const idx = Number(timeSlider.value) || 0;
+    currentIndex = idx;
 
-    setStatus(`Carico Vento (${pad3(hourIdx)})…`);
+    timeLabel.textContent = fmtHourLabel(idx);
+    runLabel.textContent = `Run: ${meta.run || "—"} — ${fmtHourLabel(idx)}`;
+    sourceLabel.textContent = `Fonte dati: ${meta.source || "—"}`;
 
-    const json = await loadJSONSanitized(url);
-
-    const layer = window.createWindLayer(json, map);
-
-    clearActiveLayer();
-    activeLayer = layer.addTo(map);
-
-    setStatus("");
-  }
-
-  function getSelectedKey() {
-    const r = document.querySelector('input[name="layer"]:checked');
-    return r ? r.value : null;
-  }
-
-  function updateHourLabel() {
-    const idx = Number(hourSlider.value || 0);
-    if (meta && Array.isArray(meta.times) && meta.times[idx]) {
-      hourLabel.textContent = meta.times[idx];
+    // TEMP
+    if (chkTemp.checked) {
+      try {
+        const grid = await loadGrid(LAYERS.temp.filePrefix, idx);
+        removeOverlay("temp");
+        overlays.temp = drawScalarRaster(grid, LAYERS.temp);
+        overlays.temp.addTo(map);
+        fitToGrid(grid);
+      } catch (e) {
+        removeOverlay("temp");
+        setStatus(`Temperatura: ${e.message}`);
+      }
     } else {
-      hourLabel.textContent = String(idx);
+      removeOverlay("temp");
     }
-  }
 
-  async function loadMeta() {
-    // Se non esiste meta.json, il sito funziona lo stesso, solo slider “base”
-    const url = `data/meta.json?v=${version}`;
-    try {
-      const m = await loadJSONSanitized(url);
-      meta = m;
-      if (meta.run) runLabel.textContent = meta.run;
-      if (meta.times && meta.times.length) {
-        hourSlider.max = String(meta.times.length - 1);
-      } else {
-        hourSlider.max = "47";
+    // RAIN
+    if (chkRain.checked) {
+      try {
+        const grid = await loadGrid(LAYERS.rain.filePrefix, idx);
+        removeOverlay("rain");
+        overlays.rain = drawScalarRaster(grid, LAYERS.rain);
+        overlays.rain.addTo(map);
+        fitToGrid(grid);
+      } catch (e) {
+        removeOverlay("rain");
+        setStatus(`Pioggia: ${e.message}`);
       }
-    } catch (e) {
-      meta = null;
-      runLabel.textContent = "—";
-      hourSlider.max = "47";
-    }
-    updateHourLabel();
-  }
-
-  async function refreshCurrent() {
-    const key = getSelectedKey();
-    activeKey = key;
-
-    if (!key) {
-      clearActiveLayer();
-      return;
+    } else {
+      removeOverlay("rain");
     }
 
-    const hourIdx = Number(hourSlider.value || 0);
-
-    try {
-      if (key === "wind") {
-        await showWindLayer(hourIdx);
-      } else {
-        await showScalarLayer(key, hourIdx);
+    // PRES
+    if (chkPres.checked) {
+      try {
+        const grid = await loadGrid(LAYERS.pres.filePrefix, idx);
+        removeOverlay("pres");
+        overlays.pres = drawScalarRaster(grid, LAYERS.pres);
+        overlays.pres.addTo(map);
+        fitToGrid(grid);
+      } catch (e) {
+        removeOverlay("pres");
+        setStatus(`Pressione: ${e.message}`);
       }
-    } catch (e) {
-      clearActiveLayer();
-      setStatus(String(e.message || e), true);
-      console.error(e);
+    } else {
+      removeOverlay("pres");
+    }
+
+    // WIND
+    if (chkWind.checked) {
+      try {
+        const grid = await loadGrid(LAYERS.wind.filePrefix, idx);
+        removeOverlay("wind");
+
+        // Se il file vento fosse scalare (o sbagliato), qui te ne accorgi subito
+        overlays.wind = createWindOverlay(map, grid);
+        overlays.wind.addTo(map);
+        fitToGrid(grid);
+      } catch (e) {
+        removeOverlay("wind");
+        setStatus(`Vento: ${e.message}`);
+      }
+    } else {
+      removeOverlay("wind");
     }
   }
 
-  function wireUI() {
-    document.querySelectorAll('input[name="layer"]').forEach((el) => {
-      el.addEventListener("change", () => {
-        refreshCurrent();
-      });
-    });
+  async function hardReloadData() {
+    setStatus("");
+    removeAll();
+    try {
+      meta = await loadMeta();
 
-    hourSlider.addEventListener("input", () => {
-      updateHourLabel();
-    });
+      // slider setup
+      const n = Array.isArray(meta.times) ? meta.times.length : 1;
+      timeSlider.min = 0;
+      timeSlider.max = Math.max(0, n - 1);
+      timeSlider.value = 0;
 
-    hourSlider.addEventListener("change", () => {
-      refreshCurrent();
-    });
+      timeLabel.textContent = fmtHourLabel(0);
+      runLabel.textContent = `Run: ${meta.run || "—"} — ${fmtHourLabel(0)}`;
+      sourceLabel.textContent = `Fonte dati: ${meta.source || "—"}`;
 
-    reloadBtn.addEventListener("click", async () => {
-      // cache-busting “forte”
-      version = Date.now();
-      setStatus("Ricarico (forzo cache)…");
-      await loadMeta();
-      await refreshCurrent();
-      setStatus("");
-    });
+      // aggiorna overlay in base alle checkbox
+      await updateLayers();
+
+    } catch (e) {
+      setStatus(`Errore meta: ${e.message}`);
+    }
   }
 
-  async function boot() {
-    wireUI();
-    await loadMeta();
+  // Eventi
+  btnReload.addEventListener("click", () => hardReloadData());
 
-    // Layer di default (metti quello che vuoi)
-    $("layerWind").checked = true;
-    activeKey = "wind";
+  timeSlider.addEventListener("input", () => {
+    // update “live”
+    updateLayers();
+  });
 
-    await refreshCurrent();
-  }
+  chkTemp.addEventListener("change", updateLayers);
+  chkRain.addEventListener("change", updateLayers);
+  chkPres.addEventListener("change", updateLayers);
+  chkWind.addEventListener("change", updateLayers);
 
-  boot();
+  // Avvio
+  hardReloadData();
 })();

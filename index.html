@@ -2,46 +2,58 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Sicilia Meteo — ICON-2I</title>
 
-  <!-- MapLibre -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-
-  <!-- App CSS (cache bust) -->
-  <link rel="stylesheet" href="./style.css?v=5">
+  <link rel="stylesheet" href="./style.css?v=7">
 </head>
 
 <body>
   <div id="map"></div>
 
-  <div class="panel">
-    <div class="title">Sicilia — ICON-2I</div>
+  <div class="panel" id="panel">
+    <div class="panel-title">Sicilia — ICON-2I</div>
 
     <button id="btnReload" class="btn">Ricarica dati</button>
 
     <div id="status" class="status"></div>
 
-    <label class="chk"><input type="checkbox" id="chkTemp"> Temperatura 2m</label>
-    <label class="chk"><input type="checkbox" id="chkRain"> Pioggia</label>
-    <label class="chk"><input type="checkbox" id="chkPres"> Pressione</label>
-    <label class="chk"><input type="checkbox" id="chkWind"> Vento (particelle)</label>
+    <label class="row">
+      <input id="chkTemp" type="checkbox">
+      <span>Temperatura 2m</span>
+    </label>
 
+    <label class="row">
+      <input id="chkRain" type="checkbox">
+      <span>Pioggia</span>
+    </label>
+
+    <label class="row">
+      <input id="chkPres" type="checkbox">
+      <span>Pressione</span>
+    </label>
+
+    <label class="row">
+      <input id="chkWind" type="checkbox">
+      <span>Vento (frecce)</span>
+    </label>
+
+    <div class="spacer"></div>
+
+    <div class="small">Ora previsione</div>
     <div class="sliderRow">
-      <div class="sliderLabel">Ora previsione</div>
-      <div class="sliderValue" id="hourLabel">0</div>
+      <input id="hour" type="range" min="0" max="0" value="0">
+      <div id="hourLabel" class="hourLabel">0</div>
     </div>
-
-    <input id="hour" type="range" min="0" max="0" value="0" step="1" />
 
     <div class="meta">
       <div id="runLabel">Run: —</div>
-      <div id="sourceLabel">Fonte dati: —</div>
+      <div id="srcLabel">Fonte dati: —</div>
     </div>
   </div>
 
-  <!-- App JS (cache bust) -->
-  <script type="module" src="./app.js?v=5"></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="./app.js?v=7"></script>
 </body>
 </html>

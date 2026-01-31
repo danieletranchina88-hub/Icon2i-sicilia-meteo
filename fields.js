@@ -1,36 +1,60 @@
-// Config dei layer e dei file nel folder /data
-// I tuoi file sembrano: temp_000.json, rain_000.json, pres_000.json, wind_000.json
+// fields.js
+// Definisce i layer scalari e le palette.
+// I tuoi file in /data sono: temp_000.json, rain_000.json, pres_000.json ...
 
-window.ICON2I_FIELDS = {
+window.FIELDS = {
   temp: {
-    id: "temp",
     label: "Temperatura 2m",
-    filePrefix: "temp_",
+    prefix: "data/temp_",
     unit: "°C",
-    // se i valori sono Kelvin metti true e verrà convertito in °C
-    kelvinToC: false,
-    // range colori indicativo per auto-normalizzazione
-    clamp: { min: -5, max: 35 }
+    // range “ragionevole” per la Sicilia (puoi cambiare)
+    vmin: -2,
+    vmax: 35,
+    palette: [
+      [0, 0, 130],
+      [0, 70, 200],
+      [0, 170, 230],
+      [60, 220, 170],
+      [170, 240, 80],
+      [255, 220, 0],
+      [255, 140, 0],
+      [230, 50, 0],
+      [150, 0, 0]
+    ]
   },
+
   rain: {
-    id: "rain",
     label: "Pioggia",
-    filePrefix: "rain_",
+    prefix: "data/rain_",
     unit: "mm",
-    clamp: { min: 0, max: 30 }
+    vmin: 0,
+    vmax: 30,
+    palette: [
+      [0, 0, 0, 0],     // trasparente per 0
+      [160, 220, 255],
+      [80, 180, 255],
+      [0, 130, 255],
+      [0, 80, 220],
+      [0, 50, 160],
+      [120, 0, 170]
+    ]
   },
+
   pres: {
-    id: "pres",
     label: "Pressione",
-    filePrefix: "pres_",
+    prefix: "data/pres_",
     unit: "hPa",
-    // se nei file è in kPa o altro la lasciamo com'è; al bisogno si aggiusta
-    clamp: { min: 980, max: 1040 }
-  },
-  wind: {
-    id: "wind",
-    label: "Vento",
-    filePrefix: "wind_",
-    unit: "m/s"
+    // I tuoi valori sembrano essere già in hPa (tipo 994–999)
+    vmin: 980,
+    vmax: 1035,
+    palette: [
+      [70, 0, 120],
+      [0, 70, 200],
+      [0, 170, 230],
+      [80, 220, 150],
+      [230, 240, 80],
+      [255, 170, 0],
+      [230, 60, 0]
+    ]
   }
 };

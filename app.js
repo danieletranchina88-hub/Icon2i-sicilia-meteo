@@ -1,4 +1,4 @@
-// app.js - path robusti per GitHub Pages (project site)
+// app.js — base map OSM stabile + loader meta.json
 
 const statusEl = document.getElementById("status");
 const btnReload = document.getElementById("btnReload");
@@ -10,13 +10,9 @@ function setStatus(msg) {
   console.log(msg);
 }
 
-// BASE: https://danieletranchina88-hub.github.io/Icon2i-sicilia-meteo/
+// Base URL robusta per GitHub Pages project site
 const BASE = new URL(".", window.location.href);
-
-function U(path) {
-  // trasforma "data/meta.json" in BASE + "data/meta.json"
-  return new URL(path, BASE).toString();
-}
+const U = (path) => new URL(path, BASE).toString();
 
 async function fetchJson(relPath) {
   const r = await fetch(U(relPath), { cache: "no-store" });
@@ -24,59 +20,85 @@ async function fetchJson(relPath) {
   return await r.json();
 }
 
-// --- MAPPA (base)
+// --- STYLE OSM (raster) SUPER STABILE
+const OSM_STYLE = {
+  version: 8,
+  sources: {
+    "osm-tiles": {
+      type: "raster",
+      tiles: [
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      ],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors"
+    }
+  },
+  layers: [
+    {
+      id: "osm-tiles",
+      type: "raster",
+      source: "osm-tiles"
+    }
+  ]
+};
+
+// --- MAPPA
 const map = new maplibregl.Map({
   container: "map",
-  style: "https://demotiles.maplibre.org/style.json",
-  center: [14.0, 37.5],
-  zoom: 6.5,
-  antialias: true,
+  style: OSM_STYLE,
+  center: [14.0, 37.5],   // Sicilia
+  zoom: 6.6,
+  antialias: true
 });
+
 map.addControl(new maplibregl.NavigationControl(), "top-right");
 
 // --- DATI
 let meta = null;
 
-async function loadMeta() {
-  setStatus("Carico meta.json…");
-  meta = await fetchJson("data/meta.json"); // ✅ MAI con "/" davanti
-  setStatus("Dati pronti ✅");
-  return meta;
-}
-
 function initSlider(m) {
-  // Provo vari campi possibili, perché non so come scrivi il meta
-  const n =
-    (Array.isArray(m?.steps) && m.steps.length) ||
-    (Array.isArray(m?.forecast_hours) && m.forecast_hours.length) ||
-    m?.n_steps ||
-    1;
+  // nel tuo meta c'è "times": ["+0h", "+1h", ...]
+  const n = Array.isArray(m?.times) ? m.times.length : 1;
 
-  if (timeSlider) {
-    timeSlider.min = 0;
-    timeSlider.max = Math.max(0, n - 1);
-    timeSlider.value = 0;
-  }
-  if (timeLabel) {
-    const run = m?.run_utc || m?.run || m?.timestamp || "—";
-    timeLabel.textContent = `Run: ${run}`;
-  }
+  timeSlider.min = 0;
+  timeSlider.max = Math.max(0, n - 1);
+  timeSlider.value = 0;
+
+  const run = m?.run || "—";
+  timeLabel.textContent = `Run: ${run} — ${m?.times?.[0] ?? "+0h"}`;
 }
 
 async function reloadAll() {
   try {
-    const m = await loadMeta();
-    initSlider(m);
+    setStatus("Carico meta.json…");
+    meta = await fetchJson("data/meta.json");
+    setStatus("Dati pronti ✅");
+
+    initSlider(meta);
+
+    // zoom sulla bbox nel meta (se presente)
+    if (Array.isArray(meta?.bbox) && meta.bbox.length === 4) {
+      const [w, s, e, n] = meta.bbox;
+      map.fitBounds([[w, s], [e, n]], { padding: 30, duration: 600 });
+    }
   } catch (e) {
-    setStatus(`meta.json non trovato: ${e.message}`);
+    setStatus(`Errore dati: ${e.message}`);
   }
 }
 
 btnReload?.addEventListener("click", reloadAll);
+
 timeSlider?.addEventListener("input", () => {
-  if (timeLabel) timeLabel.textContent = `Ora previsione: ${timeSlider.value}`;
+  if (!meta?.times) return;
+  const i = Number(timeSlider.value);
+  const run = meta?.run || "—";
+  timeLabel.textContent = `Run: ${run} — ${meta.times[i]}`;
 });
 
 map.on("load", () => {
+  // se le tile non caricano, lo vediamo nei log
+  map.on("error", (e) => console.log("MAP ERROR:", e?.error?.message || e));
   reloadAll();
 });

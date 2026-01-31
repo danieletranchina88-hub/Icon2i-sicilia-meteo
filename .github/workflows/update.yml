@@ -12,7 +12,8 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -22,7 +23,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libeccodes0 eccodes
+          sudo apt-get install -y libeccodes-dev
 
       - name: Install python deps
         run: |
@@ -40,3 +41,4 @@ jobs:
           git add data/meta.json data/*.json
           git commit -m "Update ICON-2I Sicilia data" || echo "No changes"
           git push
+```0

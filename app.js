@@ -1,154 +1,82 @@
-import { resizeCanvasToMap, drawGridToCanvas } from "./fields.js";
-import { WindParticles } from "./wind.js";
+// app.js - path robusti per GitHub Pages (project site)
 
 const statusEl = document.getElementById("status");
 const btnReload = document.getElementById("btnReload");
-
-const chkTemp = document.getElementById("chkTemp");
-const chkRain = document.getElementById("chkRain");
-const chkPres = document.getElementById("chkPres");
-const chkWind = document.getElementById("chkWind");
-
-const slider = document.getElementById("timeSlider");
+const timeSlider = document.getElementById("timeSlider");
 const timeLabel = document.getElementById("timeLabel");
 
-const fieldCanvas = document.getElementById("fieldCanvas");
-const windCanvas = document.getElementById("windCanvas");
+function setStatus(msg) {
+  if (statusEl) statusEl.textContent = msg;
+  console.log(msg);
+}
 
-const sicilyBounds = [
-  [12.25, 36.40],
-  [15.70, 38.35]
-];
+// BASE: https://danieletranchina88-hub.github.io/Icon2i-sicilia-meteo/
+const BASE = new URL(".", window.location.href);
 
+function U(path) {
+  // trasforma "data/meta.json" in BASE + "data/meta.json"
+  return new URL(path, BASE).toString();
+}
+
+async function fetchJson(relPath) {
+  const r = await fetch(U(relPath), { cache: "no-store" });
+  if (!r.ok) throw new Error(`HTTP ${r.status} su ${relPath}`);
+  return await r.json();
+}
+
+// --- MAPPA (base)
 const map = new maplibregl.Map({
   container: "map",
   style: "https://demotiles.maplibre.org/style.json",
   center: [14.0, 37.5],
-  zoom: 6.8,
-  maxBounds: sicilyBounds,
-  minZoom: 6.2,
-  maxZoom: 11.5
+  zoom: 6.5,
+  antialias: true,
 });
-
 map.addControl(new maplibregl.NavigationControl(), "top-right");
 
-const wind = new WindParticles(windCanvas, map);
-
-let meta = null;              // data/meta.json
-let fieldsByTime = {};        // cache fields
-
-function setStatus(msg) { statusEl.textContent = msg; }
+// --- DATI
+let meta = null;
 
 async function loadMeta() {
-  // La Action genera data/meta.json
-  const res = await fetch("./data/meta.json", { cache: "no-store" });
-  if (!res.ok) throw new Error("meta.json non trovato. Hai fatto girare la GitHub Action?");
-  return res.json();
+  setStatus("Carico meta.json…");
+  meta = await fetchJson("data/meta.json"); // ✅ MAI con "/" davanti
+  setStatus("Dati pronti ✅");
+  return meta;
 }
 
-async function loadField(kind, tIndex) {
-  const key = `${kind}:${tIndex}`;
-  if (fieldsByTime[key]) return fieldsByTime[key];
+function initSlider(m) {
+  // Provo vari campi possibili, perché non so come scrivi il meta
+  const n =
+    (Array.isArray(m?.steps) && m.steps.length) ||
+    (Array.isArray(m?.forecast_hours) && m.forecast_hours.length) ||
+    m?.n_steps ||
+    1;
 
-  const file = `./data/${kind}_${String(tIndex).padStart(3,"0")}.json`;
-  const res = await fetch(file, { cache: "no-store" });
-  if (!res.ok) throw new Error(`File mancante: ${file}`);
-  const obj = await res.json();
-
-  // ricostruisci Float32Array dai numeri
-  obj.values = new Float32Array(obj.values);
-  fieldsByTime[key] = obj;
-  return obj;
-}
-
-async function loadWind(tIndex) {
-  const key = `wind:${tIndex}`;
-  if (fieldsByTime[key]) return fieldsByTime[key];
-
-  const file = `./data/wind_${String(tIndex).padStart(3,"0")}.json`;
-  const res = await fetch(file, { cache: "no-store" });
-  if (!res.ok) throw new Error(`File mancante: ${file}`);
-  const obj = await res.json();
-
-  obj.u = new Float32Array(obj.u);
-  obj.v = new Float32Array(obj.v);
-  fieldsByTime[key] = obj;
-  return obj;
-}
-
-function clearCanvas(canvas, map) {
-  const ctx = canvas.getContext("2d");
-  const { dpr } = resizeCanvasToMap(canvas, map);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-
-async function render() {
-  if (!meta) return;
-  const t = Number(slider.value);
-
-  // resize canvas
-  const fctx = fieldCanvas.getContext("2d");
-  const { dpr } = resizeCanvasToMap(fieldCanvas, map);
-  fctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  fctx.clearRect(0, 0, fieldCanvas.width, fieldCanvas.height);
-
-  if (chkTemp.checked) {
-    const g = await loadField("temp", t);
-    drawGridToCanvas(fctx, map, "temp", g, 1.0);
+  if (timeSlider) {
+    timeSlider.min = 0;
+    timeSlider.max = Math.max(0, n - 1);
+    timeSlider.value = 0;
   }
-  if (chkRain.checked) {
-    const g = await loadField("rain", t);
-    drawGridToCanvas(fctx, map, "rain", g, 1.0);
+  if (timeLabel) {
+    const run = m?.run_utc || m?.run || m?.timestamp || "—";
+    timeLabel.textContent = `Run: ${run}`;
   }
-  if (chkPres.checked) {
-    const g = await loadField("pres", t);
-    drawGridToCanvas(fctx, map, "pres", g, 1.0);
-  }
-
-  if (chkWind.checked) {
-    wind.resize();
-    const w = await loadWind(t);
-    wind.setWindField(w);
-    if (!wind.running) wind.start();
-  } else {
-    wind.stop();
-    clearCanvas(windCanvas, map);
-  }
-
-  const label = meta.times?.[t] ?? `t=${t}`;
-  timeLabel.textContent = `Run: ${meta.run} — ${label}`;
 }
 
 async function reloadAll() {
   try {
-    setStatus("Carico meta…");
-    meta = await loadMeta();
-
-    slider.min = 0;
-    slider.max = (meta.times?.length ?? 1) - 1;
-    slider.value = 0;
-
-    fieldsByTime = {};
-    setStatus(`OK: run ${meta.run}`);
-    await render();
+    const m = await loadMeta();
+    initSlider(m);
   } catch (e) {
-    console.error(e);
-    setStatus(String(e.message || e));
+    setStatus(`meta.json non trovato: ${e.message}`);
   }
 }
 
-btnReload.addEventListener("click", reloadAll);
-slider.addEventListener("input", () => render());
-chkTemp.addEventListener("change", () => render());
-chkRain.addEventListener("change", () => render());
-chkPres.addEventListener("change", () => render());
-chkWind.addEventListener("change", () => render());
-
-map.on("load", async () => {
-  await reloadAll();
+btnReload?.addEventListener("click", reloadAll);
+timeSlider?.addEventListener("input", () => {
+  if (timeLabel) timeLabel.textContent = `Ora previsione: ${timeSlider.value}`;
 });
 
-map.on("move", () => render());
-map.on("zoom", () => render());
-window.addEventListener("resize", () => render());
+map.on("load", () => {
+  reloadAll();
+});

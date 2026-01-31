@@ -41,4 +41,3 @@ jobs:
           git add data/meta.json data/*.json
           git commit -m "Update ICON-2I Sicilia data" || echo "No changes"
           git push
-```0

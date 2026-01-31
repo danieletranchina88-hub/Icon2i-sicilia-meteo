@@ -1,10 +1,13 @@
 import { FIELDS } from "./fields.js";
 import { buildWindGeoJSON } from "./wind.js";
 
-// 🔁 Se cambi qualunque cosa e vuoi bypass cache mobile, aumenta VERSION (8, 9, 10...)
-const VERSION = 7;
+// 🔁 quando aggiorni, aumenta questo numero (bypass cache mobile)
+const VERSION = 8;
 
-// Base URL (repo pages). Con percorso relativo funziona sia locale che su GitHub Pages.
+// ✅ Se i layer sembrano capovolti verticalmente, lascia true.
+// Se invece diventano peggio, metti false.
+const FLIP_Y = true;
+
 const BASE = ".";
 
 const els = {
@@ -25,7 +28,6 @@ let map;
 let meta = null;
 let hourIndex = 0;
 
-// Stato layer attivi
 const active = {
   temp: false,
   rain: false,
@@ -39,7 +41,6 @@ function setStatus(msg = "", isError = false) {
 }
 
 function q(url) {
-  // cache bust per ogni fetch
   const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}v=${VERSION}`;
 }
@@ -51,8 +52,6 @@ async function fetchText(url) {
 }
 
 function safeJsonParse(text) {
-  // Se dentro ci sono NaN (che rende il JSON invalido), li trasformo in null
-  // così il parse non esplode.
   const cleaned = text
     .replace(/\bNaN\b/g, "null")
     .replace(/\bInfinity\b/g, "null")
@@ -68,11 +67,16 @@ async function loadMeta() {
   if (!m.bbox || m.bbox.length !== 4) throw new Error("meta.json: manca 'bbox' [W,S,E,N].");
   if (!m.nx || !m.ny) throw new Error("meta.json: mancano 'nx' e/o 'ny'.");
 
+  // normalizzo bbox se per caso è invertita
+  let [w, s, e, n] = m.bbox;
+  if (w > e) [w, e] = [e, w];
+  if (s > n) [s, n] = [n, s];
+  m.bbox = [w, s, e, n];
+
   return m;
 }
 
 function initMap() {
-  // Stile MapLibre: raster basemap CARTO (molto più stabile su mobile di OSM diretto)
   const style = {
     version: 8,
     sources: {
@@ -88,13 +92,7 @@ function initMap() {
         attribution: "© OpenStreetMap © CARTO",
       },
     },
-    layers: [
-      {
-        id: "basemap",
-        type: "raster",
-        source: "carto",
-      },
-    ],
+    layers: [{ id: "basemap", type: "raster", source: "carto" }],
   };
 
   map = new maplibregl.Map({
@@ -112,6 +110,10 @@ function pad3(n) {
   return String(n).padStart(3, "0");
 }
 
+/**
+ * Converte un array grigliato (nx*ny) in punti GeoJSON.
+ * - FLIP_Y risolve il caso più comune: valori ordinati da N→S (grib)
+ */
 function buildPointsGeoJSON(fieldValues, metaObj) {
   const nx = metaObj.nx;
   const ny = metaObj.ny;
@@ -122,18 +124,16 @@ function buildPointsGeoJSON(fieldValues, metaObj) {
 
   const values = fieldValues.values ?? fieldValues.vals ?? fieldValues.data ?? fieldValues;
   if (!Array.isArray(values)) throw new Error("Formato layer: manca array 'values' (o equivalente).");
-
-  if (values.length < nx * ny) {
-    throw new Error(`Valori insufficienti: ${values.length} < ${nx * ny}`);
-  }
+  if (values.length < nx * ny) throw new Error(`Valori insufficienti: ${values.length} < ${nx * ny}`);
 
   const features = [];
-  // Campionamento per non distruggere il telefono (220x220 = 48400 punti ok, ma meglio alleggerire)
-  const step = 2; // aumenta a 3/4 se vuoi più leggero
+  const step = 1; // 1 = massima qualità, 2/3 = più leggero
 
   for (let j = 0; j < ny; j += step) {
     for (let i = 0; i < nx; i += step) {
-      const idx = j * nx + i;
+      const jj = FLIP_Y ? (ny - 1 - j) : j;
+      const idx = jj * nx + i;
+
       const v = values[idx];
       if (v == null || Number.isNaN(v)) continue;
 
@@ -151,6 +151,10 @@ function buildPointsGeoJSON(fieldValues, metaObj) {
   return { type: "FeatureCollection", features };
 }
 
+/**
+ * 🔥 Qui la differenza grossa:
+ * invece di "circle" (puntini), usiamo "heatmap" (continuo, bello anche zoommando)
+ */
 function ensureFieldLayer(fieldKey) {
   const def = FIELDS[fieldKey];
   const sourceId = `src_${def.id}`;
@@ -165,19 +169,55 @@ function ensureFieldLayer(fieldKey) {
     });
   }
 
-  // circle-color con interpolate
+  // Gradiente heatmap basato sugli stessi stop colore
   const stops = def.style.colorStops;
-  const colorExpr = ["interpolate", ["linear"], ["get", "v"]];
-  for (const [val, col] of stops) colorExpr.push(val, col);
+  const gradient = {};
+  // mappo i valori su 0..1 in modo stabile usando min/max degli stop
+  const minV = stops[0][0];
+  const maxV = stops[stops.length - 1][0];
+  for (const [val, col] of stops) {
+    const t = (val - minV) / (maxV - minV || 1);
+    gradient[Math.min(1, Math.max(0, t)).toFixed(3)] = col;
+  }
 
   map.addLayer({
     id: layerId,
-    type: "circle",
+    type: "heatmap",
     source: sourceId,
     paint: {
-      "circle-radius": def.style.circleRadius,
-      "circle-opacity": def.style.circleOpacity,
-      "circle-color": colorExpr,
+      // quanto pesa ogni punto (in base al valore)
+      "heatmap-weight": [
+        "interpolate",
+        ["linear"],
+        ["get", "v"],
+        minV, 0,
+        maxV, 1
+      ],
+      // raggio cresce con lo zoom, così non vedi puntini
+      "heatmap-radius": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        5, 12,
+        7, 22,
+        9, 35,
+        11, 55
+      ],
+      "heatmap-opacity": 0.85,
+      "heatmap-intensity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        5, 0.8,
+        10, 1.3
+      ],
+      "heatmap-color": [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0, "rgba(0,0,0,0)",
+        ...Object.entries(gradient).flatMap(([k, c]) => [Number(k), c])
+      ],
     },
   });
 }
@@ -215,9 +255,8 @@ function ensureWindLayer() {
     type: "line",
     source: sourceId,
     paint: {
-      "line-width": 1.5,
+      "line-width": 1.6,
       "line-opacity": 0.9,
-      // Colore in base alla velocità
       "line-color": [
         "interpolate", ["linear"], ["get", "spd"],
         0,  "#2a6bff",
@@ -233,7 +272,6 @@ function ensureWindLayer() {
 
 async function updateWind() {
   ensureWindLayer();
-
   const hh = pad3(hourIndex);
   const url = `${BASE}/data/wind_${hh}.json`;
 
@@ -248,30 +286,29 @@ function setHourUI(idx) {
   hourIndex = idx;
   els.hour.value = String(idx);
   els.hourLabel.textContent = String(idx);
-  if (meta?.times?.[idx]) {
-    const t = meta.times[idx];
-    // Mostro anche +xh se il tuo meta.times è già del tipo "+0h"
-    els.runLabel.textContent = `Run: ${meta.run ?? "—"} — ${t}`;
-  } else {
-    els.runLabel.textContent = `Run: ${meta?.run ?? "—"} — +${idx}h`;
-  }
+
+  const t = meta?.times?.[idx] ?? `+${idx}h`;
+  els.runLabel.textContent = `Run: ${meta?.run ?? "—"} — ${t}`;
 }
 
 async function refreshActiveLayers() {
   if (!meta) return;
 
   setStatus("Carico layer…", false);
-
   try {
     if (active.temp) await updateField("temp");
     if (active.rain) await updateField("rain");
     if (active.pres) await updateField("pres");
     if (active.wind) await updateWind();
-
     setStatus("", false);
   } catch (e) {
     setStatus(String(e.message || e), true);
   }
+}
+
+function clearLayer(sourceId) {
+  const src = map.getSource(sourceId);
+  if (src) src.setData({ type: "FeatureCollection", features: [] });
 }
 
 function wireUI() {
@@ -280,14 +317,12 @@ function wireUI() {
       setStatus("Scarico meta.json…", false);
       meta = await loadMeta();
 
-      // Aggiorno slider
       els.hour.min = "0";
       els.hour.max = String(Math.max(0, meta.times.length - 1));
       setHourUI(Math.min(hourIndex, meta.times.length - 1));
 
-      els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo (ICON-2I open data)"}`;
+      els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data"}`;
 
-      setStatus("Meta OK. Ora carico i layer selezionati…", false);
       await refreshActiveLayers();
       setStatus("", false);
     } catch (e) {
@@ -296,40 +331,31 @@ function wireUI() {
   });
 
   els.hour.addEventListener("input", async (ev) => {
-    const idx = Number(ev.target.value || 0);
-    setHourUI(idx);
+    setHourUI(Number(ev.target.value || 0));
     await refreshActiveLayers();
   });
 
   els.chkTemp.addEventListener("change", async (ev) => {
     active.temp = ev.target.checked;
-    if (!active.temp && map.getLayer("lyr_temp")) {
-      map.getSource("src_temp").setData({ type: "FeatureCollection", features: [] });
-    }
+    if (!active.temp) clearLayer("src_temp");
     await refreshActiveLayers();
   });
 
   els.chkRain.addEventListener("change", async (ev) => {
     active.rain = ev.target.checked;
-    if (!active.rain && map.getLayer("lyr_rain")) {
-      map.getSource("src_rain").setData({ type: "FeatureCollection", features: [] });
-    }
+    if (!active.rain) clearLayer("src_rain");
     await refreshActiveLayers();
   });
 
   els.chkPres.addEventListener("change", async (ev) => {
     active.pres = ev.target.checked;
-    if (!active.pres && map.getLayer("lyr_pres")) {
-      map.getSource("src_pres").setData({ type: "FeatureCollection", features: [] });
-    }
+    if (!active.pres) clearLayer("src_pres");
     await refreshActiveLayers();
   });
 
   els.chkWind.addEventListener("change", async (ev) => {
     active.wind = ev.target.checked;
-    if (!active.wind && map.getLayer("lyr_wind")) {
-      map.getSource("src_wind").setData({ type: "FeatureCollection", features: [] });
-    }
+    if (!active.wind) clearLayer("src_wind");
     await refreshActiveLayers();
   });
 }
@@ -340,22 +366,15 @@ function boot() {
   map.on("load", async () => {
     wireUI();
 
-    // Carico meta subito (così lo slider non resta “morto”)
     try {
       setStatus("Boot…", false);
       meta = await loadMeta();
 
       els.hour.min = "0";
       els.hour.max = String(Math.max(0, meta.times.length - 1));
+      setHourUI(0);
 
-      // Provo a leggere l'hour da URL: ?h=10
-      const u = new URL(location.href);
-      const h = Number(u.searchParams.get("h") ?? 0);
-      setHourUI(Math.min(Math.max(0, h), meta.times.length - 1));
-
-      els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo (ICON-2I open data)"}`;
-      els.runLabel.textContent = `Run: ${meta.run ?? "—"} — ${meta.times?.[hourIndex] ?? `+${hourIndex}h`}`;
-
+      els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data"}`;
       setStatus("", false);
     } catch (e) {
       setStatus(String(e.message || e), true);

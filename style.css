@@ -1,43 +1,93 @@
-html, body { margin: 0; padding: 0; height: 100%; background: #0b0b0f; }
-#map { position: absolute; inset: 0; }
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #0b0b0e;
+}
 
-#fieldCanvas, #windCanvas {
-  position: absolute;
+#map {
+  position: fixed;
+  inset: 0;
+}
+
+#panel {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  width: min(360px, calc(100vw - 36px));
+  padding: 16px 16px 14px;
+  border-radius: 18px;
+  background: rgba(20, 20, 28, 0.72);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  box-shadow: 0 10px 35px rgba(0,0,0,0.35);
+}
+
+#title {
+  font-weight: 700;
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+
+#reload {
+  width: 100%;
+  border: none;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #22283a;
+  color: #fff;
+  font-weight: 650;
+  margin-bottom: 10px;
+}
+
+#reload:active { transform: scale(0.99); }
+
+#status {
+  font-size: 13px;
+  opacity: 0.95;
+  margin-bottom: 10px;
+  min-height: 18px;
+}
+
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  user-select: none;
+}
+
+.chk input { width: 18px; height: 18px; }
+
+.sep {
+  height: 1px;
+  background: rgba(255,255,255,0.12);
+  margin: 10px 0;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+#lead {
+  width: 100%;
+}
+
+.meta {
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.85;
+  line-height: 1.35;
+}
+
+/* Overlay canvas (vento particelle) */
+#windCanvas {
+  position: fixed;
   inset: 0;
   pointer-events: none;
 }
-
-.ui {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 10;
-  width: 320px;
-  max-width: calc(100vw - 24px);
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(0,0,0,0.62);
-  color: #fff;
-  font: 14px/1.25 system-ui, -apple-system, Segoe UI, Roboto, Arial;
-  backdrop-filter: blur(6px);
-}
-
-.title { font-weight: 800; font-size: 16px; margin-bottom: 8px; }
-.row { margin: 10px 0; display: grid; gap: 8px; }
-.chk { display: block; }
-.status { font-size: 12px; opacity: 0.9; }
-.small { font-size: 12px; }
-.dim { opacity: 0.75; }
-
-button {
-  appearance: none;
-  border: 0;
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: #1f2430;
-  color: #fff;
-  cursor: pointer;
-}
-button:hover { filter: brightness(1.1); }
-
-input[type="range"] { width: 100%; }

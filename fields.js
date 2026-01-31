@@ -1,60 +1,109 @@
-// fields.js
-// Definisce i layer scalari e le palette.
-// I tuoi file in /data sono: temp_000.json, rain_000.json, pres_000.json ...
+// Config layer + scale semplici.
+// Se vuoi poi scale “da Windy”, le rifiniamo dopo (ma prima serve stabilità).
 
-window.FIELDS = {
+const DATA_DIR = "data";
+
+const LAYERS = {
   temp: {
+    id: "temp",
     label: "Temperatura 2m",
-    prefix: "data/temp_",
+    filePrefix: "temp_",
     unit: "°C",
-    // range “ragionevole” per la Sicilia (puoi cambiare)
-    vmin: -2,
-    vmax: 35,
-    palette: [
-      [0, 0, 130],
-      [0, 70, 200],
-      [0, 170, 230],
-      [60, 220, 170],
-      [170, 240, 80],
-      [255, 220, 0],
-      [255, 140, 0],
-      [230, 50, 0],
-      [150, 0, 0]
-    ]
+    // range comodo per Sicilia, lo aggiusti dopo
+    min: -5,
+    max: 35,
+    // palette tipo "viridis-like" semplice
+    color: (t) => {
+      // t in [0..1]
+      const stops = [
+        [0.00, [68, 1, 84]],
+        [0.25, [59, 82, 139]],
+        [0.50, [33, 145, 140]],
+        [0.75, [94, 201, 98]],
+        [1.00, [253, 231, 37]],
+      ];
+      return lerpStops(stops, t);
+    }
   },
 
   rain: {
+    id: "rain",
     label: "Pioggia",
-    prefix: "data/rain_",
+    filePrefix: "rain_",
     unit: "mm",
-    vmin: 0,
-    vmax: 30,
-    palette: [
-      [0, 0, 0, 0],     // trasparente per 0
-      [160, 220, 255],
-      [80, 180, 255],
-      [0, 130, 255],
-      [0, 80, 220],
-      [0, 50, 160],
-      [120, 0, 170]
-    ]
+    min: 0,
+    max: 50,
+    color: (t) => {
+      // blu -> viola -> magenta
+      const stops = [
+        [0.00, [0, 0, 0, 0]],        // trasparente a 0
+        [0.08, [120, 180, 255, 110]],
+        [0.30, [70, 120, 255, 160]],
+        [0.60, [140, 70, 255, 190]],
+        [1.00, [255, 40, 180, 220]],
+      ];
+      return lerpStops(stops, t, true);
+    }
   },
 
   pres: {
+    id: "pres",
     label: "Pressione",
-    prefix: "data/pres_",
+    filePrefix: "pres_",
     unit: "hPa",
-    // I tuoi valori sembrano essere già in hPa (tipo 994–999)
-    vmin: 980,
-    vmax: 1035,
-    palette: [
-      [70, 0, 120],
-      [0, 70, 200],
-      [0, 170, 230],
-      [80, 220, 150],
-      [230, 240, 80],
-      [255, 170, 0],
-      [230, 60, 0]
-    ]
+    min: 980,
+    max: 1040,
+    color: (t) => {
+      // grigio -> giallo -> arancio
+      const stops = [
+        [0.00, [120, 160, 200, 110]],
+        [0.50, [220, 220, 140, 140]],
+        [1.00, [255, 160, 60, 170]],
+      ];
+      return lerpStops(stops, t, true);
+    }
+  },
+
+  wind: {
+    id: "wind",
+    label: "Vento",
+    filePrefix: "wind_",
+    unit: "m/s"
   }
 };
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function clamp01(x) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function lerpStops(stops, t, hasAlpha=false) {
+  t = clamp01(t);
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [t0, c0] = stops[i];
+    const [t1, c1] = stops[i + 1];
+    if (t >= t0 && t <= t1) {
+      const u = (t - t0) / (t1 - t0 || 1);
+      const r = Math.round(lerp(c0[0], c1[0], u));
+      const g = Math.round(lerp(c0[1], c1[1], u));
+      const b = Math.round(lerp(c0[2], c1[2], u));
+      if (hasAlpha) {
+        const a0 = (c0.length > 3 ? c0[3] : 255);
+        const a1 = (c1.length > 3 ? c1[3] : 255);
+        const a = Math.round(lerp(a0, a1, u));
+        return [r, g, b, a];
+      }
+      return [r, g, b, 255];
+    }
+  }
+  const last = stops[stops.length - 1][1];
+  if (hasAlpha) return [last[0], last[1], last[2], (last[3] ?? 255)];
+  return [last[0], last[1], last[2], 255];
+}
+
+function pad3(n) {
+  return String(n).padStart(3, "0");
+}

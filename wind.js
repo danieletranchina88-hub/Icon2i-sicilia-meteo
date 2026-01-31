@@ -1,148 +1,166 @@
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+// Vento particelle (semplice) con canvas sopra la mappa.
+// Si aspetta che i file wind_XXX.json contengano:
+// { nx, ny, bbox:[minLon,minLat,maxLon,maxLat], u:[...], v:[...] }
+// oppure { nx, ny, bbox, valuesU, valuesV }
+// Se i tuoi wind_XXX hanno una struttura diversa, dimmelo e lo adatto.
 
-export class WindParticles {
-  constructor(canvas, map) {
-    this.canvas = canvas;
-    this.map = map;
-    this.ctx = canvas.getContext("2d");
-    this.running = false;
+let canvas, ctx;
+let particles = [];
+let running = false;
 
-    this.particles = [];
-    this.maxParticles = 12000;   // mobile ok se non esageri
-    this.fade = 0.08;           // scia
-    this.speedFactor = 0.015;   // velocità particelle
+function ensureCanvas() {
+  if (canvas) return;
+  canvas = document.createElement("canvas");
+  canvas.id = "windCanvas";
+  document.body.appendChild(canvas);
+  ctx = canvas.getContext("2d");
 
-    this.wind = null;           // { nx, ny, bbox, u:Float32Array, v:Float32Array }
-  }
+  const resize = () => {
+    canvas.width = window.innerWidth * devicePixelRatio;
+    canvas.height = window.innerHeight * devicePixelRatio;
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  };
+  window.addEventListener("resize", resize);
+  resize();
+}
 
-  setWindField(windField) {
-    this.wind = windField;
-    this.resetParticles();
-  }
+function rand(a, b) { return a + Math.random() * (b - a); }
 
-  resize() {
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const rect = this.map.getContainer().getBoundingClientRect();
-    this.canvas.width = Math.floor(rect.width * dpr);
-    this.canvas.height = Math.floor(rect.height * dpr);
-    this.canvas.style.width = `${rect.width}px`;
-    this.canvas.style.height = `${rect.height}px`;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
+function initParticles(count) {
+  particles = new Array(count).fill(0).map(() => ({
+    x: rand(0, window.innerWidth),
+    y: rand(0, window.innerHeight),
+    age: Math.floor(rand(0, 100))
+  }));
+}
 
-  resetParticles() {
-    this.particles = [];
-    if (!this.wind) return;
+function parseWind(json) {
+  // Provo varie chiavi possibili
+  const nx = json.nx;
+  const ny = json.ny;
+  const bbox = json.bbox;
 
-    // Spawn particelle dentro bbox Sicilia (in pixel).
-    const [minLon, minLat, maxLon, maxLat] = this.wind.bbox;
-    const pNW = this.map.project([minLon, maxLat]);
-    const pSE = this.map.project([maxLon, minLat]);
+  // u/v
+  const u = json.u || json.valuesU || json.u10 || null;
+  const v = json.v || json.valuesV || json.v10 || null;
 
-    const x0 = Math.min(pNW.x, pSE.x);
-    const y0 = Math.min(pNW.y, pSE.y);
-    const x1 = Math.max(pNW.x, pSE.x);
-    const y1 = Math.max(pNW.y, pSE.y);
+  // fallback (se hai un unico array "values" e dentro ci sono oggetti)
+  return { nx, ny, bbox, u, v };
+}
 
-    const n = this.maxParticles;
-    for (let i = 0; i < n; i++) {
-      this.particles.push({
-        x: x0 + Math.random() * (x1 - x0),
-        y: y0 + Math.random() * (y1 - y0),
-        age: Math.random() * 100
-      });
+function bilinearSample(grid, nx, ny, gx, gy) {
+  // gx, gy in coordinate griglia (0..nx-1, 0..ny-1)
+  const x0 = Math.floor(gx), y0 = Math.floor(gy);
+  const x1 = Math.min(x0 + 1, nx - 1);
+  const y1 = Math.min(y0 + 1, ny - 1);
+  const tx = gx - x0, ty = gy - y0;
+
+  const i00 = y0 * nx + x0;
+  const i10 = y0 * nx + x1;
+  const i01 = y1 * nx + x0;
+  const i11 = y1 * nx + x1;
+
+  const v00 = grid[i00], v10 = grid[i10], v01 = grid[i01], v11 = grid[i11];
+
+  // se manca qualcosa → null
+  if (v00 == null || v10 == null || v01 == null || v11 == null) return null;
+
+  const a = v00 * (1 - tx) + v10 * tx;
+  const b = v01 * (1 - tx) + v11 * tx;
+  return a * (1 - ty) + b * ty;
+}
+
+function stepParticles(map, wind) {
+  // fading
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = "rgba(0,0,0,1)";
+  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+  ctx.globalAlpha = 0.85;
+  ctx.lineWidth = 1;
+
+  const { nx, ny, bbox, u, v } = wind;
+  if (!nx || !ny || !bbox || !u || !v) return;
+
+  const [minLon, minLat, maxLon, maxLat] = bbox;
+
+  for (const p of particles) {
+    p.age++;
+    if (p.age > 140) {
+      p.x = rand(0, window.innerWidth);
+      p.y = rand(0, window.innerHeight);
+      p.age = 0;
+      continue;
     }
-  }
 
-  start() {
-    this.running = true;
-    this.loop();
-  }
-
-  stop() {
-    this.running = false;
-  }
-
-  sampleUVAtPixel(x, y) {
     // pixel -> lon/lat
-    const ll = this.map.unproject([x, y]);
-    const lon = ll.lng;
-    const lat = ll.lat;
+    const ll = map.unproject([p.x, p.y]);
+    const lon = ll.lng, lat = ll.lat;
 
-    const w = this.wind;
-    const [minLon, minLat, maxLon, maxLat] = w.bbox;
-    if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return null;
-
-    // lon/lat -> grid index (bilineare)
-    const fx = ((lon - minLon) / (maxLon - minLon)) * (w.nx - 1);
-    const fy = ((maxLat - lat) / (maxLat - minLat)) * (w.ny - 1);
-
-    const x0 = clamp(Math.floor(fx), 0, w.nx - 2);
-    const y0 = clamp(Math.floor(fy), 0, w.ny - 2);
-    const tx = fx - x0;
-    const ty = fy - y0;
-
-    const i00 = y0 * w.nx + x0;
-    const i10 = y0 * w.nx + (x0 + 1);
-    const i01 = (y0 + 1) * w.nx + x0;
-    const i11 = (y0 + 1) * w.nx + (x0 + 1);
-
-    const u = (1-ty)*((1-tx)*w.u[i00] + tx*w.u[i10]) + ty*((1-tx)*w.u[i01] + tx*w.u[i11]);
-    const v = (1-ty)*((1-tx)*w.v[i00] + tx*w.v[i10]) + ty*((1-tx)*w.v[i01] + tx*w.v[i11]);
-
-    return { u, v };
-  }
-
-  loop() {
-    if (!this.running) return;
-    if (!this.wind) {
-      requestAnimationFrame(() => this.loop());
-      return;
+    if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) {
+      p.x = rand(0, window.innerWidth);
+      p.y = rand(0, window.innerHeight);
+      p.age = 0;
+      continue;
     }
 
-    const ctx = this.ctx;
+    // lon/lat -> griglia
+    const gx = (lon - minLon) / (maxLon - minLon) * (nx - 1);
+    const gy = (maxLat - lat) / (maxLat - minLat) * (ny - 1); // y invertita
 
-    // fade
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = `rgba(0,0,0,${this.fade})`;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    ctx.globalCompositeOperation = "lighter";
-    ctx.lineWidth = 1;
-
-    for (const p of this.particles) {
-      p.age += 1;
-      if (p.age > 160) {
-        p.age = 0;
-        // respawn vicino centro vista
-        const rect = this.map.getContainer().getBoundingClientRect();
-        p.x = Math.random() * rect.width;
-        p.y = Math.random() * rect.height;
-        continue;
-      }
-
-      const uv = this.sampleUVAtPixel(p.x, p.y);
-      if (!uv) {
-        p.age = 999;
-        continue;
-      }
-
-      const x2 = p.x + uv.u * this.speedFactor * 60;
-      const y2 = p.y - uv.v * this.speedFactor * 60;
-
-      const spd = Math.hypot(uv.u, uv.v);
-      const a = clamp(spd / 20, 0.08, 0.55);
-
-      ctx.strokeStyle = `rgba(255,255,255,${a})`;
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-
-      p.x = x2;
-      p.y = y2;
+    const uu = bilinearSample(u, nx, ny, gx, gy);
+    const vv = bilinearSample(v, nx, ny, gx, gy);
+    if (uu == null || vv == null) {
+      p.age = 200;
+      continue;
     }
 
-    requestAnimationFrame(() => this.loop());
+    // velocità in pixel: scala empirica
+    const speed = 0.8;
+    const dx = uu * speed;
+    const dy = -vv * speed;
+
+    const x2 = p.x + dx;
+    const y2 = p.y + dy;
+
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = "rgba(120, 200, 255, 0.9)";
+    ctx.stroke();
+
+    p.x = x2;
+    p.y = y2;
+
+    if (p.x < 0 || p.x > window.innerWidth || p.y < 0 || p.y > window.innerHeight) {
+      p.x = rand(0, window.innerWidth);
+      p.y = rand(0, window.innerHeight);
+      p.age = 0;
+    }
   }
-          }
+}
+
+export async function startWind(map, url) {
+  ensureCanvas();
+  initParticles(1800);
+
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status} su ${url}`);
+  const json = await res.json();
+  const wind = parseWind(json);
+
+  running = true;
+  const loop = () => {
+    if (!running) return;
+    stepParticles(map, wind);
+    requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+export function stopWind() {
+  running = false;
+  if (ctx) ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+}

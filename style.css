@@ -1,100 +1,117 @@
 html, body {
-  height: 100%;
   margin: 0;
   padding: 0;
-  background: #0b0f17;
+  height: 100%;
+  background: #0b0d12;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
 #map {
-  position: absolute;
+  position: fixed;
   inset: 0;
 }
 
-.panel {
-  position: absolute;
-  z-index: 20;
-  left: 12px;
-  top: 12px;
-  width: 300px;
-  max-width: calc(100vw - 24px);
-  border-radius: 14px;
-  padding: 14px;
-  color: #e9eef7;
-  background: rgba(18, 24, 36, 0.78);
+#panel {
+  position: fixed;
+  left: 14px;
+  top: 14px;
+  width: min(360px, calc(100vw - 28px));
+  background: rgba(20, 24, 34, 0.78);
   backdrop-filter: blur(10px);
-  box-shadow: 0 10px 25px rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
+  padding: 12px 12px 10px 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+  color: #e9eefc;
+  z-index: 10;
 }
 
 .panel-title {
   font-weight: 700;
+  letter-spacing: 0.2px;
   margin-bottom: 10px;
 }
 
 .btn {
   width: 100%;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px 12px;
+  background: rgba(45, 55, 80, 0.7);
+  color: #e9eefc;
   font-weight: 700;
-  color: #e9eef7;
-  background: rgba(45, 59, 86, 0.8);
+  cursor: pointer;
 }
 
 .btn:active {
-  transform: scale(0.99);
+  transform: translateY(1px);
 }
 
 .status {
-  margin-top: 8px;
+  margin: 8px 2px 8px 2px;
   min-height: 18px;
   font-size: 12px;
-  color: #ffb1b1;
-  white-space: pre-wrap;
+  color: rgba(233,238,252,0.9);
 }
 
-.row {
+.status.err {
+  color: #ff8b8b;
+}
+
+.checks {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-top: 6px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.checks label {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  user-select: none;
+  gap: 8px;
 }
 
-.row input {
+input[type="checkbox"] {
   width: 18px;
   height: 18px;
 }
 
-.spacer {
-  height: 10px;
-}
-
-.small {
-  font-size: 12px;
-  opacity: 0.85;
-}
-
-.sliderRow {
-  display: grid;
-  grid-template-columns: 1fr 40px;
-  gap: 10px;
-  align-items: center;
+.slider-wrap {
   margin-top: 6px;
 }
 
-.hourLabel {
-  text-align: right;
-  font-weight: 700;
+.slider-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 14px;
+  margin: 0 2px 6px 2px;
+}
+
+.slider-label {
   opacity: 0.95;
+}
+
+.slider-value {
+  opacity: 0.9;
+}
+
+#hour {
+  width: 100%;
 }
 
 .meta {
   margin-top: 10px;
   font-size: 12px;
-  opacity: 0.9;
+  line-height: 1.25;
 }
 
-.maplibregl-ctrl-top-right {
-  z-index: 30; /* sopra la mappa, sotto al pannello va bene */
+.muted {
+  opacity: 0.75;
+}
+
+.maplibregl-ctrl-attrib {
+  font-size: 11px !important;
 }

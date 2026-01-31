@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sicilia Meteo — ICON-2I</title>
+
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
+  <link href="./style.css" rel="stylesheet"/>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <!-- Canvas overlay per campi (temp/pioggia/pressione) -->
+  <canvas id="fieldCanvas"></canvas>
+
+  <!-- Canvas overlay per particelle vento -->
+  <canvas id="windCanvas"></canvas>
+
+  <div class="ui">
+    <div class="title">Sicilia — ICON-2I</div>
+
+    <div class="row">
+      <button id="btnReload">Ricarica dati</button>
+      <span id="status" class="status">—</span>
+    </div>
+
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="chkTemp"> Temperatura 2m</label>
+      <label class="chk"><input type="checkbox" id="chkRain"> Pioggia</label>
+      <label class="chk"><input type="checkbox" id="chkPres"> Pressione</label>
+      <label class="chk"><input type="checkbox" id="chkWind"> Vento (particelle)</label>
+    </div>
+
+    <div class="row">
+      <label for="timeSlider">Ora previsione</label>
+      <input id="timeSlider" type="range" min="0" max="0" value="0" step="1" />
+      <div id="timeLabel" class="small">—</div>
+    </div>
+
+    <div class="small dim">
+      Fonte dati: MeteoHub / Agenzia ItaliaMeteo (ICON-2I open data). 1
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

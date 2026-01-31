@@ -1,8 +1,7 @@
 html, body {
-  margin: 0;
-  padding: 0;
   height: 100%;
-  background: #0b0d12;
+  margin: 0;
+  background: #0b0f14;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
@@ -11,107 +10,105 @@ html, body {
   inset: 0;
 }
 
-#panel {
+.panel {
   position: fixed;
-  left: 14px;
   top: 14px;
-  width: min(360px, calc(100vw - 28px));
-  background: rgba(20, 24, 34, 0.78);
+  left: 14px;
+  width: min(340px, calc(100vw - 28px));
+  background: rgba(20, 26, 35, 0.82);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 14px;
+  border-radius: 12px;
+  color: #e8eef7;
   padding: 12px 12px 10px 12px;
-  box-shadow: 0 12px 30px rgba(0,0,0,0.35);
-  color: #e9eefc;
-  z-index: 10;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+  z-index: 1000;
 }
 
 .panel-title {
   font-weight: 700;
-  letter-spacing: 0.2px;
+  font-size: 15px;
   margin-bottom: 10px;
 }
 
 .btn {
   width: 100%;
-  border: 0;
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: rgba(45, 55, 80, 0.7);
-  color: #e9eefc;
-  font-weight: 700;
+  border: none;
   cursor: pointer;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(58, 77, 120, 0.55);
+  color: #fff;
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
 .btn:active {
-  transform: translateY(1px);
+  transform: scale(0.99);
 }
 
 .status {
-  margin: 8px 2px 8px 2px;
   min-height: 18px;
   font-size: 12px;
-  color: rgba(233,238,252,0.9);
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 8px;
 }
 
-.status.err {
-  color: #ff8b8b;
+.status.error {
+  color: #ff9aa2;
 }
 
-.checks {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  margin-top: 6px;
-  margin-bottom: 10px;
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  user-select: none;
   font-size: 14px;
 }
 
-.checks label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-input[type="checkbox"] {
+.chk input {
   width: 18px;
   height: 18px;
 }
 
-.slider-wrap {
-  margin-top: 6px;
+.spacer {
+  height: 8px;
 }
 
-.slider-row {
+.row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 14px;
-  margin: 0 2px 6px 2px;
+  font-size: 13px;
+  margin-top: 2px;
+  margin-bottom: 6px;
 }
 
-.slider-label {
-  opacity: 0.95;
+.row-title {
+  color: rgba(255, 255, 255, 0.85);
 }
 
-.slider-value {
-  opacity: 0.9;
+.row-value {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 700;
 }
 
-#hour {
+#hourSlider {
   width: 100%;
 }
 
 .meta {
   margin-top: 10px;
   font-size: 12px;
-  line-height: 1.25;
+  line-height: 1.35;
 }
 
 .muted {
-  opacity: 0.75;
+  color: rgba(255, 255, 255, 0.72);
 }
 
-.maplibregl-ctrl-attrib {
-  font-size: 11px !important;
+/* Evita “pagine bianche” se Leaflet non trova altezza */
+.leaflet-container {
+  background: #0b0f14;
 }

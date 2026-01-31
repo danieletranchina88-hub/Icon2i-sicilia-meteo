@@ -1,232 +1,100 @@
-// app.js
-
-const VERSION = "5"; // cambia questo numero se vuoi forzare aggiornamento
-
-// DOM
-const elStatus = document.getElementById("status");
-const btnReload = document.getElementById("btnReload");
-
-const chkTemp = document.getElementById("chkTemp");
-const chkRain = document.getElementById("chkRain");
-const chkPres = document.getElementById("chkPres");
-const chkWind = document.getElementById("chkWind");
-
-const hour = document.getElementById("hour");
-const hourLabel = document.getElementById("hourLabel");
-
-const runLabel = document.getElementById("runLabel");
-const sourceLabel = document.getElementById("sourceLabel");
-
-// Utils
-function pad3(n) {
-  return String(n).padStart(3, "0");
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0b0f17;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
-function setStatus(msg) {
-  elStatus.textContent = msg || "";
+#map {
+  position: absolute;
+  inset: 0;
 }
 
-// Base map (raster OSM) — così la mappa “c’è sempre”
-const rasterStyle = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: [
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-      ],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors"
-    }
-  },
-  layers: [
-    { id: "osm", type: "raster", source: "osm" }
-  ]
-};
-
-const map = new maplibregl.Map({
-  container: "map",
-  style: rasterStyle,
-  center: [14.0, 37.5],
-  zoom: 6.2
-});
-
-map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-
-// Stato app
-let meta = null;
-let currentHour = 0;
-
-const layerDefs = {
-  temp: { id: "wx-temp", prefix: "temp" },
-  rain: { id: "wx-rain", prefix: "rain" },
-  pres: { id: "wx-pres", prefix: "pres" },
-  wind: { id: "wx-wind", prefix: "wind" }
-};
-
-// Carica meta.json
-async function loadMeta() {
-  // IMPORTANTISSIMO: percorso relativo, niente "/data/..."
-  const url = `./data/meta.json?v=${VERSION}`;
-  const res = await fetch(url, { cache: "no-store" });
-
-  if (!res.ok) {
-    throw new Error(`meta.json non trovato (${res.status})`);
-  }
-
-  const j = await res.json();
-  return j;
+.panel {
+  position: absolute;
+  z-index: 20;
+  left: 12px;
+  top: 12px;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  border-radius: 14px;
+  padding: 14px;
+  color: #e9eef7;
+  background: rgba(18, 24, 36, 0.78);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 25px rgba(0,0,0,.35);
 }
 
-// Carica un layer json per un’ora
-async function loadLayer(prefix, h) {
-  const file = `./data/${prefix}_${pad3(h)}.json?v=${VERSION}`;
-  const res = await fetch(file, { cache: "no-store" });
-
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status} su ${file}`);
-  }
-
-  // Se dentro c’è "NaN" il JSON è invalido: questa è una BOMBA che va risolta in generazione.
-  // Qui provo comunque a darti un errore chiaro.
-  const text = await res.text();
-  if (text.includes("NaN")) {
-    throw new Error(`JSON invalido: contiene NaN (${file}). Devi rigenerare i file sostituendo NaN con null.`);
-  }
-
-  return JSON.parse(text);
+.panel-title {
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
-function removeIfExists(layerId) {
-  if (!map.getStyle()) return;
-  if (map.getLayer(layerId)) map.removeLayer(layerId);
-  if (map.getSource(layerId)) map.removeSource(layerId);
+.btn {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: #e9eef7;
+  background: rgba(45, 59, 86, 0.8);
 }
 
-function addGeoJsonLayer(layerId, geojson, paintType) {
-  removeIfExists(layerId);
-
-  map.addSource(layerId, {
-    type: "geojson",
-    data: geojson
-  });
-
-  // Qui sto assumendo che i tuoi JSON siano GeoJSON validi.
-  // Se invece sono una griglia custom, dimmelo e li disegno nel modo giusto.
-  if (paintType === "circle") {
-    map.addLayer({
-      id: layerId,
-      type: "circle",
-      source: layerId,
-      paint: {
-        "circle-radius": 4,
-        "circle-opacity": 0.85
-      }
-    });
-  } else {
-    map.addLayer({
-      id: layerId,
-      type: "fill",
-      source: layerId,
-      paint: {
-        "fill-opacity": 0.55
-      }
-    });
-  }
+.btn:active {
+  transform: scale(0.99);
 }
 
-async function refreshSelectedLayers() {
-  if (!meta) return;
-
-  setStatus("");
-
-  const tasks = [];
-
-  if (chkTemp.checked) tasks.push(renderOne("temp"));
-  else removeIfExists(layerDefs.temp.id);
-
-  if (chkRain.checked) tasks.push(renderOne("rain"));
-  else removeIfExists(layerDefs.rain.id);
-
-  if (chkPres.checked) tasks.push(renderOne("pres"));
-  else removeIfExists(layerDefs.pres.id);
-
-  if (chkWind.checked) tasks.push(renderOne("wind"));
-  else removeIfExists(layerDefs.wind.id);
-
-  try {
-    await Promise.all(tasks);
-  } catch (e) {
-    setStatus(String(e.message || e));
-  }
+.status {
+  margin-top: 8px;
+  min-height: 18px;
+  font-size: 12px;
+  color: #ffb1b1;
+  white-space: pre-wrap;
 }
 
-async function renderOne(key) {
-  const def = layerDefs[key];
-  const geojson = await loadLayer(def.prefix, currentHour);
-
-  // Scelta “generica”: se è FeatureCollection di punti -> circle, altrimenti fill.
-  const isPoints =
-    geojson &&
-    geojson.type === "FeatureCollection" &&
-    geojson.features &&
-    geojson.features[0] &&
-    geojson.features[0].geometry &&
-    geojson.features[0].geometry.type === "Point";
-
-  addGeoJsonLayer(def.id, geojson, isPoints ? "circle" : "fill");
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  user-select: none;
 }
 
-// Setup slider
-function setupSlider() {
-  const maxH = (meta && meta.times && meta.times.length) ? (meta.times.length - 1) : 0;
-  hour.min = "0";
-  hour.max = String(maxH);
-  hour.value = "0";
-  currentHour = 0;
-  hourLabel.textContent = "0";
-
-  hour.oninput = () => {
-    currentHour = Number(hour.value);
-    hourLabel.textContent = String(currentHour);
-  };
-
-  hour.onchange = () => {
-    refreshSelectedLayers();
-  };
+.row input {
+  width: 18px;
+  height: 18px;
 }
 
-// Boot
-async function boot() {
-  try {
-    setStatus("Carico meta.json...");
-    meta = await loadMeta();
-
-    runLabel.textContent = `Run: ${meta.run || "—"} — +0h`;
-    sourceLabel.textContent = `Fonte dati: ${meta.source || "—"}`;
-
-    setupSlider();
-
-    setStatus("Dati pronti ✅");
-  } catch (e) {
-    meta = null;
-    runLabel.textContent = "Run: —";
-    sourceLabel.textContent = "Fonte dati: —";
-    setStatus(`Errore: ${String(e.message || e)}`);
-  }
+.spacer {
+  height: 10px;
 }
 
-btnReload.onclick = async () => {
-  await boot();
-  await refreshSelectedLayers();
-};
+.small {
+  font-size: 12px;
+  opacity: 0.85;
+}
 
-chkTemp.onchange = refreshSelectedLayers;
-chkRain.onchange = refreshSelectedLayers;
-chkPres.onchange = refreshSelectedLayers;
-chkWind.onchange = refreshSelectedLayers;
+.sliderRow {
+  display: grid;
+  grid-template-columns: 1fr 40px;
+  gap: 10px;
+  align-items: center;
+  margin-top: 6px;
+}
 
-// Aspetto che la mappa sia pronta (stile caricato)
-map.on("load", async () => {
-  await boot();
-});
+.hourLabel {
+  text-align: right;
+  font-weight: 700;
+  opacity: 0.95;
+}
+
+.meta {
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.maplibregl-ctrl-top-right {
+  z-index: 30; /* sopra la mappa, sotto al pannello va bene */
+}

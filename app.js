@@ -1,11 +1,11 @@
 import { FIELDS } from "./fields.js";
 import { buildWindGeoJSON } from "./wind.js";
 
-// 🔁 quando aggiorni, aumenta questo numero (bypass cache mobile)
-const VERSION = 8;
+// 🔁 AUMENTA questo numero ogni volta che aggiorni (bypass cache)
+const VERSION = 999;
 
-// ✅ Se i layer sembrano capovolti verticalmente, lascia true.
-// Se invece diventano peggio, metti false.
+// ✅ Se i layer sembrano “capovolti”, lascia true.
+// Se noti che diventa peggio, metti false.
 const FLIP_Y = true;
 
 const BASE = ".";
@@ -36,6 +36,7 @@ const active = {
 };
 
 function setStatus(msg = "", isError = false) {
+  if (!els.status) return;
   els.status.style.color = isError ? "#ffb1b1" : "#bfe7c5";
   els.status.textContent = msg;
 }
@@ -51,6 +52,7 @@ async function fetchText(url) {
   return await res.text();
 }
 
+// accetta JSON che contiene NaN/Infinity (li sostituisce con null)
 function safeJsonParse(text) {
   const cleaned = text
     .replace(/\bNaN\b/g, "null")
@@ -67,7 +69,7 @@ async function loadMeta() {
   if (!m.bbox || m.bbox.length !== 4) throw new Error("meta.json: manca 'bbox' [W,S,E,N].");
   if (!m.nx || !m.ny) throw new Error("meta.json: mancano 'nx' e/o 'ny'.");
 
-  // normalizzo bbox se per caso è invertita
+  // normalizza bbox
   let [w, s, e, n] = m.bbox;
   if (w > e) [w, e] = [e, w];
   if (s > n) [s, n] = [n, s];
@@ -111,10 +113,25 @@ function pad3(n) {
 }
 
 /**
- * Converte un array grigliato (nx*ny) in punti GeoJSON.
- * - FLIP_Y risolve il caso più comune: valori ordinati da N→S (grib)
+ * JSON layer -> punti GeoJSON.
+ * Supporta:
+ * - { values: [...] }
+ * - { data: [...] }
+ * - array puro [...]
  */
-function buildPointsGeoJSON(fieldValues, metaObj) {
+function getValuesArray(obj) {
+  if (Array.isArray(obj)) return obj;
+  if (Array.isArray(obj.values)) return obj.values;
+  if (Array.isArray(obj.data)) return obj.data;
+  if (Array.isArray(obj.vals)) return obj.vals;
+  // ultimo tentativo: se l’oggetto ha una sola proprietà array
+  for (const k of Object.keys(obj)) {
+    if (Array.isArray(obj[k])) return obj[k];
+  }
+  return null;
+}
+
+function buildPointsGeoJSON(layerObj, metaObj) {
   const nx = metaObj.nx;
   const ny = metaObj.ny;
   const [w, s, e, n] = metaObj.bbox;
@@ -122,12 +139,12 @@ function buildPointsGeoJSON(fieldValues, metaObj) {
   const dx = (e - w) / nx;
   const dy = (n - s) / ny;
 
-  const values = fieldValues.values ?? fieldValues.vals ?? fieldValues.data ?? fieldValues;
-  if (!Array.isArray(values)) throw new Error("Formato layer: manca array 'values' (o equivalente).");
+  const values = getValuesArray(layerObj);
+  if (!values) throw new Error("Formato layer: non trovo l'array dei valori (values/data/array).");
   if (values.length < nx * ny) throw new Error(`Valori insufficienti: ${values.length} < ${nx * ny}`);
 
   const features = [];
-  const step = 1; // 1 = massima qualità, 2/3 = più leggero
+  const step = 1; // se vuoi alleggerire su mobile: 2 o 3
 
   for (let j = 0; j < ny; j += step) {
     for (let i = 0; i < nx; i += step) {
@@ -151,12 +168,10 @@ function buildPointsGeoJSON(fieldValues, metaObj) {
   return { type: "FeatureCollection", features };
 }
 
-/**
- * 🔥 Qui la differenza grossa:
- * invece di "circle" (puntini), usiamo "heatmap" (continuo, bello anche zoommando)
- */
 function ensureFieldLayer(fieldKey) {
   const def = FIELDS[fieldKey];
+  if (!def) throw new Error(`FIELDS: manca definizione per ${fieldKey}`);
+
   const sourceId = `src_${def.id}`;
   const layerId = `lyr_${def.id}`;
 
@@ -169,15 +184,18 @@ function ensureFieldLayer(fieldKey) {
     });
   }
 
-  // Gradiente heatmap basato sugli stessi stop colore
-  const stops = def.style.colorStops;
-  const gradient = {};
-  // mappo i valori su 0..1 in modo stabile usando min/max degli stop
+  const stops = def.style?.colorStops;
+  if (!stops || !Array.isArray(stops) || stops.length < 2) {
+    throw new Error(`FIELDS.${fieldKey}.style.colorStops non valido`);
+  }
+
+  // gradient per heatmap-density (0..1)
   const minV = stops[0][0];
   const maxV = stops[stops.length - 1][0];
+  const pairs = [];
   for (const [val, col] of stops) {
     const t = (val - minV) / (maxV - minV || 1);
-    gradient[Math.min(1, Math.max(0, t)).toFixed(3)] = col;
+    pairs.push(Math.min(1, Math.max(0, t)), col);
   }
 
   map.addLayer({
@@ -185,7 +203,6 @@ function ensureFieldLayer(fieldKey) {
     type: "heatmap",
     source: sourceId,
     paint: {
-      // quanto pesa ogni punto (in base al valore)
       "heatmap-weight": [
         "interpolate",
         ["linear"],
@@ -193,7 +210,6 @@ function ensureFieldLayer(fieldKey) {
         minV, 0,
         maxV, 1
       ],
-      // raggio cresce con lo zoom, così non vedi puntini
       "heatmap-radius": [
         "interpolate",
         ["linear"],
@@ -216,7 +232,7 @@ function ensureFieldLayer(fieldKey) {
         ["linear"],
         ["heatmap-density"],
         0, "rgba(0,0,0,0)",
-        ...Object.entries(gradient).flatMap(([k, c]) => [Number(k), c])
+        ...pairs
       ],
     },
   });
@@ -272,6 +288,7 @@ function ensureWindLayer() {
 
 async function updateWind() {
   ensureWindLayer();
+
   const hh = pad3(hourIndex);
   const url = `${BASE}/data/wind_${hh}.json`;
 
@@ -284,18 +301,18 @@ async function updateWind() {
 
 function setHourUI(idx) {
   hourIndex = idx;
-  els.hour.value = String(idx);
-  els.hourLabel.textContent = String(idx);
+  if (els.hour) els.hour.value = String(idx);
+  if (els.hourLabel) els.hourLabel.textContent = String(idx);
 
   const t = meta?.times?.[idx] ?? `+${idx}h`;
-  els.runLabel.textContent = `Run: ${meta?.run ?? "—"} — ${t}`;
+  if (els.runLabel) els.runLabel.textContent = `Run: ${meta?.run ?? "—"} — ${t}`;
 }
 
 async function refreshActiveLayers() {
   if (!meta) return;
 
-  setStatus("Carico layer…", false);
   try {
+    setStatus("Carico layer…", false);
     if (active.temp) await updateField("temp");
     if (active.rain) await updateField("rain");
     if (active.pres) await updateField("pres");
@@ -306,22 +323,27 @@ async function refreshActiveLayers() {
   }
 }
 
-function clearLayer(sourceId) {
+function clearLayerByDef(def) {
+  const sourceId = `src_${def.id}`;
   const src = map.getSource(sourceId);
   if (src) src.setData({ type: "FeatureCollection", features: [] });
 }
 
 function wireUI() {
-  els.btnReload.addEventListener("click", async () => {
+  els.btnReload?.addEventListener("click", async () => {
     try {
       setStatus("Scarico meta.json…", false);
       meta = await loadMeta();
 
-      els.hour.min = "0";
-      els.hour.max = String(Math.max(0, meta.times.length - 1));
+      if (els.hour) {
+        els.hour.min = "0";
+        els.hour.max = String(Math.max(0, meta.times.length - 1));
+      }
       setHourUI(Math.min(hourIndex, meta.times.length - 1));
 
-      els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data"}`;
+      if (els.srcLabel) {
+        els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data"}`;
+      }
 
       await refreshActiveLayers();
       setStatus("", false);
@@ -330,32 +352,35 @@ function wireUI() {
     }
   });
 
-  els.hour.addEventListener("input", async (ev) => {
+  els.hour?.addEventListener("input", async (ev) => {
     setHourUI(Number(ev.target.value || 0));
     await refreshActiveLayers();
   });
 
-  els.chkTemp.addEventListener("change", async (ev) => {
+  els.chkTemp?.addEventListener("change", async (ev) => {
     active.temp = ev.target.checked;
-    if (!active.temp) clearLayer("src_temp");
+    if (!active.temp) clearLayerByDef(FIELDS.temp);
     await refreshActiveLayers();
   });
 
-  els.chkRain.addEventListener("change", async (ev) => {
+  els.chkRain?.addEventListener("change", async (ev) => {
     active.rain = ev.target.checked;
-    if (!active.rain) clearLayer("src_rain");
+    if (!active.rain) clearLayerByDef(FIELDS.rain);
     await refreshActiveLayers();
   });
 
-  els.chkPres.addEventListener("change", async (ev) => {
+  els.chkPres?.addEventListener("change", async (ev) => {
     active.pres = ev.target.checked;
-    if (!active.pres) clearLayer("src_pres");
+    if (!active.pres) clearLayerByDef(FIELDS.pres);
     await refreshActiveLayers();
   });
 
-  els.chkWind.addEventListener("change", async (ev) => {
+  els.chkWind?.addEventListener("change", async (ev) => {
     active.wind = ev.target.checked;
-    if (!active.wind) clearLayer("src_wind");
+    if (!active.wind) {
+      const src = map.getSource("src_wind");
+      if (src) src.setData({ type: "FeatureCollection", features: [] });
+    }
     await refreshActiveLayers();
   });
 }
@@ -370,11 +395,16 @@ function boot() {
       setStatus("Boot…", false);
       meta = await loadMeta();
 
-      els.hour.min = "0";
-      els.hour.max = String(Math.max(0, meta.times.length - 1));
+      if (els.hour) {
+        els.hour.min = "0";
+        els.hour.max = String(Math.max(0, meta.times.length - 1));
+      }
       setHourUI(0);
 
-      els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data"}`;
+      if (els.srcLabel) {
+        els.srcLabel.textContent = `Fonte dati: ${meta.source ?? "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data"}`;
+      }
+
       setStatus("", false);
     } catch (e) {
       setStatus(String(e.message || e), true);

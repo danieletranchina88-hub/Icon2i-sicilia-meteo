@@ -2,582 +2,646 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Sicilia — ICON-2I</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Sicilia Meteo — ICON-2I</title>
 
-  <link rel="preconnect" href="https://unpkg.com" crossorigin>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <style>
-    html, body { height:100%; margin:0; }
-    #map { height:100%; width:100%; }
+    html, body { height: 100%; margin: 0; background:#0b0f14; }
+    #map { height: 100%; width: 100%; }
 
-    .panel{
-      position:absolute; top:12px; left:12px;
-      width:min(320px, calc(100vw - 24px));
-      background:rgba(20,24,33,.82);
-      color:#eef2ff;
-      border-radius:14px;
-      box-shadow:0 10px 30px rgba(0,0,0,.35);
-      padding:12px 12px 10px 12px;
-      z-index:9999;
+    .panel {
+      position: absolute;
+      z-index: 1000;
+      left: 14px;
+      top: 14px;
+      width: min(360px, calc(100vw - 28px));
+      padding: 14px 14px 12px;
+      border-radius: 14px;
+      background: rgba(18, 24, 32, .86);
       backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      color: #e9eef6;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      line-height:1.25;
-      user-select:none;
+      user-select: none;
     }
-    .panel h1{
-      margin:0 0 10px 0;
-      font-size:16px;
-      font-weight:700;
-      letter-spacing:.2px;
+
+    .title { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+    .btn {
+      width: 100%;
+      background: #22314a;
+      border: 0;
+      color: #e9eef6;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-weight: 700;
+      cursor: pointer;
     }
-    .btn{
-      width:100%;
-      border:0;
-      background:rgba(60,80,255,.25);
-      color:#fff;
-      padding:10px 12px;
-      border-radius:10px;
-      font-weight:700;
-      cursor:pointer;
+    .btn:active { transform: translateY(1px); }
+
+    .row { margin-top: 10px; display: grid; gap: 8px; }
+    label { display:flex; align-items:center; gap:10px; font-size: 14px; }
+    input[type="checkbox"] { width:18px; height:18px; }
+
+    .meta {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.35;
+      color: rgba(233,238,246,.85);
     }
-    .btn:active{ transform: translateY(1px); }
 
-    .row{ display:flex; gap:10px; align-items:center; margin:10px 0; }
-    .checks{ display:flex; flex-direction:column; gap:10px; margin:10px 0 12px 0; }
-    label{ display:flex; align-items:center; gap:10px; font-size:14px; }
-    input[type="checkbox"]{ width:18px; height:18px; }
+    .sliderWrap { margin-top: 10px; }
+    .sliderHead { display:flex; justify-content:space-between; font-size: 12px; opacity:.9; margin-bottom: 6px; }
+    input[type="range"] { width: 100%; }
 
-    .meta{ font-size:12px; opacity:.92; margin-top:8px; }
-    .meta div{ margin:2px 0; }
+    .error { color: #ff7b7b; font-size: 12px; margin-top: 8px; }
 
-    .sliderWrap{ margin-top:10px; }
-    input[type="range"]{ width:100%; }
-
-    .err{ color:#ffb4b4; font-size:12px; margin-top:8px; white-space:pre-wrap; }
-
-    /* Tooltip info punto */
-    .infoTag{
-      position:absolute;
-      transform: translate(-50%, calc(-100% - 12px));
-      background: rgba(10,12,18,.90);
-      color:#fff;
-      padding:8px 10px;
-      border-radius:10px;
-      font-size:13px;
-      box-shadow:0 10px 24px rgba(0,0,0,.35);
-      pointer-events:none;
-      z-index:10000;
-      max-width: 260px;
-      display:none;
+    .hint {
+      margin-top: 8px;
+      font-size: 11px;
+      color: rgba(233,238,246,.65);
     }
-    .infoTag .k{ opacity:.8; font-size:12px; }
-    .infoTag .v{ font-weight:800; font-size:14px; margin-top:2px; }
 
-    /* canvases */
-    .leaflet-overlay-pane canvas { image-rendering: auto; }
+    .leaflet-control-attribution { display:none; }
   </style>
 </head>
-
 <body>
   <div id="map"></div>
 
-  <div class="panel" id="panel">
-    <h1>Sicilia — ICON-2I</h1>
+  <div class="panel">
+    <div class="title">Sicilia — ICON-2I</div>
+
     <button class="btn" id="reloadBtn">Ricarica dati</button>
 
-    <div class="checks">
-      <label><input type="checkbox" id="chkTemp"> Temperatura 2m</label>
-      <label><input type="checkbox" id="chkRain"> Pioggia (oraria)</label>
-      <label><input type="checkbox" id="chkPres"> Pressione</label>
-      <label><input type="checkbox" id="chkWind"> Vento (particelle)</label>
+    <div class="row">
+      <label><input id="chkTemp" type="checkbox"> Temperatura 2m</label>
+      <label><input id="chkRain" type="checkbox"> Pioggia (oraria)</label>
+      <label><input id="chkPres" type="checkbox"> Pressione</label>
+      <label><input id="chkWind" type="checkbox"> Vento (particelle)</label>
     </div>
 
     <div class="sliderWrap">
-      <div class="meta">
-        <div><b>Ora previsione:</b> <span id="timeLabel">—</span></div>
-        <input type="range" id="stepSlider" min="0" max="0" step="1" value="0" disabled />
-        <div><b>Run:</b> <span id="runLabel">—</span></div>
-        <div><b>Punto:</b> <span id="ptLabel">—</span></div>
-        <div><b>Valore:</b> <span id="valLabel">—</span></div>
-        <div><b>Fonte dati:</b> <span id="srcLabel">—</span></div>
+      <div class="sliderHead">
+        <span id="timeLabel">Ora previsione: —</span>
+        <span id="hourLabel">0h</span>
       </div>
+      <input id="hourSlider" type="range" min="0" max="0" step="1" value="0" />
     </div>
 
-    <div class="err" id="errBox" style="display:none;"></div>
-  </div>
+    <div class="meta">
+      <div>Run: <span id="runLabel">—</span></div>
+      <div>Punto: <span id="ptLabel">—</span></div>
+      <div>Valore: <span id="valLabel">—</span></div>
+      <div>Fonte dati: <span id="srcLabel">—</span></div>
+    </div>
 
-  <div class="infoTag" id="infoTag">
-    <div class="k" id="infoTagK">—</div>
-    <div class="v" id="infoTagV">—</div>
+    <div id="errBox" class="error" style="display:none;"></div>
+    <div class="hint">Tip: tocca la mappa per leggere il valore nel punto (in base al layer attivo).</div>
   </div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    /* =========================
-       CONFIG (adatta qui se serve)
-       ========================= */
-    const DATA_DIR = "data";
-    const STEPS_DEFAULT = 49;       // se run.json manca, slider assume 0..48
-    const STEP_HOURS_DEFAULT = 1;   // step in ore
-    const TZ = "Europe/Rome";
+    // =========================
+    // CONFIG
+    // =========================
+    // Metti qui la data/ora del run se non usi run.json (formato YYYYMMDDHH).
+    // Esempio: "2026013112"
+    const FALLBACK_RUN = "2026013112";
 
-    // nomi file: temp_000.json, rain_000.json, pres_000.json, wind_000.json
+    // Cartella dati (relativa a questo index.html)
+    const DATA_DIR = "./data";
+
+    // Prefissi file
     const FILES = {
-      temp: (i) => `${DATA_DIR}/temp_${String(i).padStart(3,"0")}.json`,
-      rain: (i) => `${DATA_DIR}/rain_${String(i).padStart(3,"0")}.json`,
-      pres: (i) => `${DATA_DIR}/pres_${String(i).padStart(3,"0")}.json`,
-      wind: (i) => `${DATA_DIR}/wind_${String(i).padStart(3,"0")}.json`,
-      runMeta: () => `${DATA_DIR}/run.json`
+      temp: "temp_",
+      rain: "rain_",
+      pres: "pres_",
+      wind: "wind_"
     };
 
-    // Se la pioggia nei tuoi file è ACCUMULATA (0..t), metti true e la trasformiamo in ORARIA.
-    // Se invece è già ORARIA, metti false.
-    const RAIN_IS_ACCUMULATED = false;
+    // Estensione
+    const EXT = ".json";
 
-    // palette vento (km/h): blu -> rosso scuro
-    function windColor(kmh){
-      // clamp 0..80 (oltre 80 resta rosso scuro)
-      const x = Math.max(0, Math.min(80, kmh)) / 80;
-      // gradient manuale (blu -> ciano -> verde -> giallo -> arancio -> rosso -> rosso scuro)
-      const stops = [
-        {t:0.00, c:[  0,  90,255]},
-        {t:0.20, c:[  0, 200,255]},
-        {t:0.40, c:[  0, 255,140]},
-        {t:0.60, c:[ 255,255,  0]},
-        {t:0.75, c:[ 255,140,  0]},
-        {t:0.90, c:[ 255, 40,  0]},
-        {t:1.00, c:[ 120,  0,  0]},
-      ];
-      let a=stops[0], b=stops[stops.length-1];
-      for(let i=0;i<stops.length-1;i++){
-        if(x>=stops[i].t && x<=stops[i+1].t){ a=stops[i]; b=stops[i+1]; break; }
-      }
-      const u = (x-a.t)/Math.max(1e-9,(b.t-a.t));
-      const r = Math.round(a.c[0] + (b.c[0]-a.c[0])*u);
-      const g = Math.round(a.c[1] + (b.c[1]-a.c[1])*u);
-      const b2= Math.round(a.c[2] + (b.c[2]-a.c[2])*u);
-      return `rgb(${r},${g},${b2})`;
+    // Bounding box default (Sicilia circa), usata solo per inizializzare vista.
+    // I layer useranno la bbox interna dei JSON.
+    const DEFAULT_VIEW_BOUNDS = L.latLngBounds([36.35, 12.15], [38.40, 15.85]);
+
+    // =========================
+    // UTIL
+    // =========================
+    const $ = (id) => document.getElementById(id);
+
+    function pad3(n){ return String(n).padStart(3, "0"); }
+
+    function showError(msg){
+      const el = $("errBox");
+      el.style.display = "block";
+      el.textContent = msg;
+    }
+    function clearError(){
+      const el = $("errBox");
+      el.style.display = "none";
+      el.textContent = "";
     }
 
-    /* =========================
-       SAFE JSON loader (accetta NaN)
-       ========================= */
-    async function fetchJsonLoose(url){
-      const bust = (url.includes("?") ? "&" : "?") + "v=" + Date.now();
-      const res = await fetch(url + bust, {cache:"no-store"});
+    // Cache-busting + no-store (riduce “cache impazzita” su mobile)
+    async function fetchTextNoCache(url){
+      const u = url + (url.includes("?") ? "&" : "?") + "v=" + Date.now();
+      const res = await fetch(u, { cache: "no-store" });
       if(!res.ok) throw new Error(`HTTP ${res.status} su ${url}`);
-      const txt = await res.text();
-      // rende valido JSON: NaN -> null, Infinity -> null
-      const fixed = txt
+      return await res.text();
+    }
+
+    // FIX: i tuoi JSON contengono NaN (non valido in JSON standard).
+    // Li ripuliamo prima di fare JSON.parse.
+    function safeJsonParseWithNaN(text){
+      const cleaned = text
         .replace(/\bNaN\b/g, "null")
         .replace(/\bInfinity\b/g, "null")
         .replace(/\b-Infinity\b/g, "null");
-      return JSON.parse(fixed);
+      return JSON.parse(cleaned);
     }
 
-    function setError(msg){
-      const box = document.getElementById("errBox");
-      if(!msg){
-        box.style.display="none";
-        box.textContent="";
-        return;
+    async function fetchJSON(url){
+      const text = await fetchTextNoCache(url);
+      return safeJsonParseWithNaN(text);
+    }
+
+    // Prova a leggere run.json, se non esiste usa fallback
+    async function loadRunMeta(){
+      // run.json dovrebbe contenere almeno { "run": "YYYYMMDDHH" } oppure simile.
+      // Se non ce l'hai, va bene il fallback.
+      try{
+        const meta = await fetchJSON(`${DATA_DIR}/run.json`);
+        if(meta && (meta.run || meta.RUN || meta.date)){
+          const r = meta.run || meta.RUN || meta.date;
+          return String(r).trim();
+        }
+      } catch(e){
+        // ignora
       }
-      box.style.display="block";
-      box.textContent = msg;
+      return FALLBACK_RUN;
     }
 
-    /* =========================
-       MAP init
-       ========================= */
-    const map = L.map("map", { zoomControl:true }).setView([37.55, 14.25], 7);
+    function parseRunToDate(runStr){
+      // runStr: YYYYMMDDHH
+      const y = Number(runStr.slice(0,4));
+      const m = Number(runStr.slice(4,6)) - 1;
+      const d = Number(runStr.slice(6,8));
+      const hh = Number(runStr.slice(8,10));
+      // Uso UTC per coerenza; se vuoi locale, cambia Date.UTC -> new Date(...)
+      return new Date(Date.UTC(y, m, d, hh, 0, 0));
+    }
 
+    function fmtDateIT(dateUtc){
+      // Visualizza in ora locale (Italia), ma partendo da un Date in UTC.
+      // Così vedi “data e ora” reali nel telefono.
+      const local = new Date(dateUtc.getTime());
+      return local.toLocaleString("it-IT", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit"
+      });
+    }
+
+    // =========================
+    // MAP INIT
+    // =========================
+    const map = L.map("map", {
+      zoomControl: true,
+      preferCanvas: true
+    });
+
+    // Base map OSM (come vuoi tu)
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18,
-      attribution: "&copy; OpenStreetMap"
+      maxZoom: 18
     }).addTo(map);
 
-    /* =========================
-       Canvas overlay base (scalar fields)
-       ========================= */
-    function createCanvasOverlay(){
-      const overlay = L.Layer.extend({
-        onAdd: function(m){
-          this._map = m;
-          this._canvas = L.DomUtil.create("canvas", "leaflet-layer");
-          this._canvas.style.position = "absolute";
-          this._ctx = this._canvas.getContext("2d", {alpha:true});
-          m.getPanes().overlayPane.appendChild(this._canvas);
-          m.on("moveend zoomend resize", this._reset, this);
-          this._reset();
-        },
-        onRemove: function(m){
-          m.getPanes().overlayPane.removeChild(this._canvas);
-          m.off("moveend zoomend resize", this._reset, this);
-        },
-        _reset: function(){
-          const size = this._map.getSize();
-          this._canvas.width = size.x;
-          this._canvas.height = size.y;
-          const pos = this._map.containerPointToLayerPoint([0,0]);
-          L.DomUtil.setPosition(this._canvas, pos);
-          if(this._drawFn) this._drawFn();
-        },
-        setDrawFunction(fn){
-          this._drawFn = fn;
-          if(this._map) this._reset();
-        },
-        clear(){
-          if(!this._ctx) return;
-          this._ctx.clearRect(0,0,this._canvas.width,this._canvas.height);
-        },
-        get ctx(){ return this._ctx; },
-        get canvas(){ return this._canvas; }
-      });
-      return new overlay();
+    map.fitBounds(DEFAULT_VIEW_BOUNDS);
+
+    // =========================
+    // CANVAS GRID OVERLAY (temp/rain/pres + optional speed background)
+    // =========================
+    class GridCanvasOverlay {
+      constructor(map){
+        this.map = map;
+        this.canvas = document.createElement("canvas");
+        this.canvas.style.position = "absolute";
+        this.canvas.style.top = "0";
+        this.canvas.style.left = "0";
+        this.canvas.style.pointerEvents = "none";
+        this.ctx = this.canvas.getContext("2d", { alpha: true });
+
+        this._pane = map.getPanes().overlayPane;
+        this._pane.appendChild(this.canvas);
+
+        this.enabled = false;
+        this.grid = null; // {nx, ny, bbox:[w,s,e,n], values:[]}
+        this.colorFn = null;
+        this.valueTransform = (v)=>v;
+
+        this._onMove = () => this.redraw();
+        map.on("move zoom resize", this._onMove);
+        this.redraw();
+      }
+
+      setData(grid, colorFn, valueTransform){
+        this.grid = grid;
+        this.colorFn = colorFn;
+        this.valueTransform = valueTransform || ((v)=>v);
+        this.redraw();
+      }
+
+      setEnabled(on){
+        this.enabled = on;
+        this.canvas.style.display = on ? "block" : "none";
+        if(on) this.redraw();
+      }
+
+      destroy(){
+        this.map.off("move zoom resize", this._onMove);
+        this.canvas.remove();
+      }
+
+      resizeToMap(){
+        const size = this.map.getSize();
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = Math.round(size.x * dpr);
+        this.canvas.height = Math.round(size.y * dpr);
+        this.canvas.style.width = size.x + "px";
+        this.canvas.style.height = size.y + "px";
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      // Bilinear sample in lon/lat
+      sample(lon, lat){
+        const g = this.grid;
+        if(!g) return null;
+        const [w, s, e, n] = g.bbox;
+        if(lon < w || lon > e || lat < s || lat > n) return null;
+
+        const fx = (lon - w) / (e - w) * (g.nx - 1);
+        // IMPORTANT: y da nord verso sud
+        const fy = (n - lat) / (n - s) * (g.ny - 1);
+
+        const x0 = Math.floor(fx), y0 = Math.floor(fy);
+        const x1 = Math.min(x0 + 1, g.nx - 1);
+        const y1 = Math.min(y0 + 1, g.ny - 1);
+
+        const dx = fx - x0, dy = fy - y0;
+
+        const idx = (x, y) => y * g.nx + x;
+        const v00 = g.values[idx(x0, y0)];
+        const v10 = g.values[idx(x1, y0)];
+        const v01 = g.values[idx(x0, y1)];
+        const v11 = g.values[idx(x1, y1)];
+
+        // Se troppo null, ritorna null
+        const vals = [v00,v10,v01,v11].filter(v => v !== null && v !== undefined);
+        if(vals.length < 2) return null;
+
+        const a00 = (v00 ?? v10 ?? v01 ?? v11);
+        const a10 = (v10 ?? a00);
+        const a01 = (v01 ?? a00);
+        const a11 = (v11 ?? a00);
+
+        const v0 = a00 * (1 - dx) + a10 * dx;
+        const v1 = a01 * (1 - dx) + a11 * dx;
+        return v0 * (1 - dy) + v1 * dy;
+      }
+
+      redraw(){
+        this.resizeToMap();
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
+
+        if(!this.enabled || !this.grid || !this.colorFn) return;
+
+        const size = this.map.getSize();
+        const img = ctx.createImageData(size.x, size.y);
+        const data = img.data;
+
+        // Render: per performance campiono ogni 2px e riempio blocchi (su mobile è molto più fluido)
+        const step = 2;
+
+        for(let y=0; y<size.y; y+=step){
+          for(let x=0; x<size.x; x+=step){
+            const latlng = this.map.containerPointToLatLng([x, y]);
+            const v = this.sample(latlng.lng, latlng.lat);
+            if(v === null) continue;
+
+            const vv = this.valueTransform(v);
+            const rgba = this.colorFn(vv);
+            if(!rgba) continue;
+
+            for(let yy=0; yy<step; yy++){
+              for(let xx=0; xx<step; xx++){
+                const px = x + xx, py = y + yy;
+                if(px >= size.x || py >= size.y) continue;
+                const i = (py * size.x + px) * 4;
+                data[i]   = rgba[0];
+                data[i+1] = rgba[1];
+                data[i+2] = rgba[2];
+                data[i+3] = rgba[3];
+              }
+            }
+          }
+        }
+
+        ctx.putImageData(img, 0, 0);
+      }
     }
 
-    const scalarOverlay = createCanvasOverlay().addTo(map);
+    // =========================
+    // WIND PARTICLES
+    // =========================
+    class WindParticles {
+      constructor(map){
+        this.map = map;
+        this.canvas = document.createElement("canvas");
+        this.canvas.style.position = "absolute";
+        this.canvas.style.top = "0";
+        this.canvas.style.left = "0";
+        this.canvas.style.pointerEvents = "none";
+        this.ctx = this.canvas.getContext("2d", { alpha:true });
 
-    /* =========================
-       Wind particles overlay
-       ========================= */
-    function createWindOverlay(){
-      const overlay = L.Layer.extend({
-        onAdd: function(m){
-          this._map = m;
-          this._canvas = L.DomUtil.create("canvas", "leaflet-layer");
-          this._canvas.style.position = "absolute";
-          this._ctx = this._canvas.getContext("2d", {alpha:true});
-          m.getPanes().overlayPane.appendChild(this._canvas);
-          m.on("moveend zoomend resize", this._reset, this);
-          this._running = false;
-          this._particles = [];
-          this._reset();
-        },
-        onRemove: function(m){
+        this._pane = map.getPanes().overlayPane;
+        this._pane.appendChild(this.canvas);
+
+        this.enabled = false;
+        this.wind = null; // {nx, ny, bbox, u:[], v:[]}
+
+        this.particles = [];
+        this.maxParticles = 2500; // mobile ok
+        this.fade = 0.08; // scia
+        this.speedScale = 0.012; // scala velocità in pixel
+        this._anim = null;
+
+        this._onMove = () => {
+          this.resizeToMap();
+          if(this.enabled) this.seed(true);
+        };
+
+        map.on("move zoom resize", this._onMove);
+        this.resizeToMap();
+      }
+
+      resizeToMap(){
+        const size = this.map.getSize();
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = Math.round(size.x * dpr);
+        this.canvas.height = Math.round(size.y * dpr);
+        this.canvas.style.width = size.x + "px";
+        this.canvas.style.height = size.y + "px";
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      setData(wind){
+        this.wind = wind;
+        if(this.enabled) this.seed(true);
+      }
+
+      setEnabled(on){
+        this.enabled = on;
+        this.canvas.style.display = on ? "block" : "none";
+        if(on){
+          this.seed(true);
+          this.start();
+        } else {
           this.stop();
-          m.getPanes().overlayPane.removeChild(this._canvas);
-          m.off("moveend zoomend resize", this._reset, this);
-        },
-        _reset: function(){
-          const size = this._map.getSize();
-          this._canvas.width = size.x;
-          this._canvas.height = size.y;
-          const pos = this._map.containerPointToLayerPoint([0,0]);
-          L.DomUtil.setPosition(this._canvas, pos);
-        },
-        setField(field){
-          // field: {nx,ny,bbox,u[],v[]}, bbox=[lonmin,latmin,lonmax,latmax]
-          this._field = field || null;
-          this._particles = [];
-          if(this._field) this._seedParticles(1200);
-        },
-        _seedParticles(n){
-          const w = this._canvas.width, h = this._canvas.height;
-          this._particles = [];
-          for(let i=0;i<n;i++){
-            this._particles.push({
-              x: Math.random()*w,
-              y: Math.random()*h,
-              age: Math.random()*100
-            });
-          }
-        },
-        start(){
-          if(this._running) return;
-          this._running = true;
-          const tick = () => {
-            if(!this._running) return;
-            this._step();
-            this._raf = requestAnimationFrame(tick);
-          };
-          this._raf = requestAnimationFrame(tick);
-        },
-        stop(){
-          this._running = false;
-          if(this._raf) cancelAnimationFrame(this._raf);
-          this._raf = null;
-          if(this._ctx) this._ctx.clearRect(0,0,this._canvas.width,this._canvas.height);
-        },
-        _sampleUV(px, py){
-          const f = this._field;
-          if(!f) return null;
-
-          // px/py -> latlng
-          const ll = this._map.containerPointToLatLng([px, py]);
-          const lon = ll.lng, lat = ll.lat;
-
-          const lonMin = f.bbox[0], latMin = f.bbox[1], lonMax = f.bbox[2], latMax = f.bbox[3];
-          if(lon < lonMin || lon > lonMax || lat < latMin || lat > latMax) return null;
-
-          // normalize to grid
-          const x = (lon - lonMin) / (lonMax - lonMin) * (f.nx - 1);
-          const y = (latMax - lat) / (latMax - latMin) * (f.ny - 1); // lat inverted: top=latMax
-
-          const x0 = Math.floor(x), y0 = Math.floor(y);
-          const x1 = Math.min(f.nx-1, x0+1), y1 = Math.min(f.ny-1, y0+1);
-          const tx = x - x0, ty = y - y0;
-
-          const idx = (xx,yy)=> yy*f.nx + xx;
-
-          const u00=f.u[idx(x0,y0)], v00=f.v[idx(x0,y0)];
-          const u10=f.u[idx(x1,y0)], v10=f.v[idx(x1,y0)];
-          const u01=f.u[idx(x0,y1)], v01=f.v[idx(x0,y1)];
-          const u11=f.u[idx(x1,y1)], v11=f.v[idx(x1,y1)];
-          if([u00,v00,u10,v10,u01,v01,u11,v11].some(z => z==null)) return null;
-
-          const u0 = u00*(1-tx) + u10*tx;
-          const u1 = u01*(1-tx) + u11*tx;
-          const v0 = v00*(1-tx) + v10*tx;
-          const v1 = v01*(1-tx) + v11*tx;
-
-          const u = u0*(1-ty) + u1*ty;
-          const v = v0*(1-ty) + v1*ty;
-
-          return {u,v};
-        },
-        _step(){
-          const ctx = this._ctx;
-          if(!ctx) return;
-
-          // fade (scia)
-          ctx.globalCompositeOperation = "source-over";
-          ctx.fillStyle = "rgba(0,0,0,0.06)";
-          ctx.fillRect(0,0,this._canvas.width,this._canvas.height);
-
-          if(!this._field) return;
-
-          ctx.globalCompositeOperation = "lighter";
-          ctx.lineWidth = 1;
-
-          const speedScale = 0.9; // particelle più veloci o più lente
-          const maxAge = 80;
-          const w = this._canvas.width, h = this._canvas.height;
-
-          for(const p of this._particles){
-            p.age++;
-            if(p.age > maxAge){
-              p.x = Math.random()*w;
-              p.y = Math.random()*h;
-              p.age = 0;
-              continue;
-            }
-
-            const s = this._sampleUV(p.x, p.y);
-            if(!s){
-              p.x = Math.random()*w;
-              p.y = Math.random()*h;
-              p.age = 0;
-              continue;
-            }
-
-            // u/v: assumo m/s (ICON spesso è m/s). convertiamo km/h per colore.
-            const kmh = Math.sqrt(s.u*s.u + s.v*s.v) * 3.6;
-
-            const nx = p.x + s.u * speedScale;
-            const ny = p.y - s.v * speedScale; // v positivo = nord -> su schermo diminuisce y
-
-            ctx.strokeStyle = windColor(kmh);
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(nx, ny);
-            ctx.stroke();
-
-            p.x = nx;
-            p.y = ny;
-
-            if(p.x<0 || p.x>w || p.y<0 || p.y>h){
-              p.x = Math.random()*w;
-              p.y = Math.random()*h;
-              p.age = 0;
-            }
-          }
-        }
-      });
-      return new overlay();
-    }
-
-    const windOverlay = createWindOverlay(); // aggiunta/rimossa dinamicamente
-
-    /* =========================
-       Helpers: scalar rendering
-       ========================= */
-    function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
-
-    function scalarColor(type, v){
-      // colori base: scegliamo scale semplici (puoi ritoccarle dopo)
-      if(v==null) return [0,0,0,0];
-
-      if(type==="temp"){
-        // -5..35
-        const x = clamp((v - (-5)) / 40, 0, 1);
-        // blu -> giallo -> rosso
-        const r = Math.round( 40 + 215*x );
-        const g = Math.round( 60 + 180*Math.sin(x*Math.PI) );
-        const b = Math.round( 255 - 255*x );
-        return [r,g,b,160];
-      }
-      if(type==="pres"){
-        // 980..1035 hPa
-        const x = clamp((v - 980) / 55, 0, 1);
-        const r = Math.round( 40 + 80*x );
-        const g = Math.round( 120 + 120*(1-x) );
-        const b = Math.round( 220 + 0*x );
-        return [r,g,b,150];
-      }
-      if(type==="rain"){
-        // 0..20 mm/h
-        const x = clamp(v / 20, 0, 1);
-        // trasparente -> blu -> viola
-        const r = Math.round( 30 + 120*x );
-        const g = Math.round( 80 + 60*(1-x) );
-        const b = Math.round( 200 + 55*x );
-        const a = Math.round( 40 + 200*x );
-        return [r,g,b,a];
-      }
-      return [255,255,255,120];
-    }
-
-    function drawScalarToCanvas(field, type){
-      if(!field) return;
-
-      const ctx = scalarOverlay.ctx;
-      const canvas = scalarOverlay.canvas;
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-
-      const {nx, ny, bbox} = field;
-      const arr = field.values; // per temp/pres/rain
-      if(!nx || !ny || !bbox || !arr) return;
-
-      const lonMin=bbox[0], latMin=bbox[1], lonMax=bbox[2], latMax=bbox[3];
-
-      // bounding box -> pixel rect in mappa
-      const p1 = map.latLngToContainerPoint([latMax, lonMin]); // top-left
-      const p2 = map.latLngToContainerPoint([latMin, lonMax]); // bottom-right
-
-      const left = Math.min(p1.x,p2.x), top = Math.min(p1.y,p2.y);
-      const right= Math.max(p1.x,p2.x), bot = Math.max(p1.y,p2.y);
-
-      const w = Math.max(1, Math.floor(right-left));
-      const h = Math.max(1, Math.floor(bot-top));
-
-      // creiamo immagine a risoluzione griglia e poi la stiriamo (no puntini)
-      const img = ctx.createImageData(nx, ny);
-      const data = img.data;
-
-      for(let j=0;j<ny;j++){
-        for(let i=0;i<nx;i++){
-          const v = arr[j*nx+i];
-          const [r,g,b,a] = scalarColor(type, v);
-          const k = (j*nx+i)*4;
-          data[k]=r; data[k+1]=g; data[k+2]=b; data[k+3]=a;
+          this.ctx.clearRect(0,0,this.canvas.clientWidth,this.canvas.clientHeight);
         }
       }
 
-      // disegna “stirato” sul bbox
-      const tmp = document.createElement("canvas");
-      tmp.width = nx; tmp.height = ny;
-      tmp.getContext("2d").putImageData(img,0,0);
+      destroy(){
+        this.stop();
+        this.map.off("move zoom resize", this._onMove);
+        this.canvas.remove();
+      }
 
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(tmp, left, top, w, h);
+      // bilinear sample u,v in lon/lat
+      sampleUV(lon, lat){
+        const w = this.wind;
+        if(!w) return null;
+        const [W,S,E,N] = w.bbox;
+        if(lon < W || lon > E || lat < S || lat > N) return null;
+
+        const fx = (lon - W) / (E - W) * (w.nx - 1);
+        const fy = (N - lat) / (N - S) * (w.ny - 1);
+
+        const x0 = Math.floor(fx), y0 = Math.floor(fy);
+        const x1 = Math.min(x0 + 1, w.nx - 1);
+        const y1 = Math.min(y0 + 1, w.ny - 1);
+
+        const dx = fx - x0, dy = fy - y0;
+        const idx = (x,y) => y*w.nx + x;
+
+        const u00 = w.u[idx(x0,y0)], u10 = w.u[idx(x1,y0)], u01 = w.u[idx(x0,y1)], u11 = w.u[idx(x1,y1)];
+        const v00 = w.v[idx(x0,y0)], v10 = w.v[idx(x1,y0)], v01 = w.v[idx(x0,y1)], v11 = w.v[idx(x1,y1)];
+
+        const uvals = [u00,u10,u01,u11].filter(a => a!==null && a!==undefined);
+        const vvals = [v00,v10,v01,v11].filter(a => a!==null && a!==undefined);
+        if(uvals.length < 2 || vvals.length < 2) return null;
+
+        const U00 = (u00 ?? u10 ?? u01 ?? u11);
+        const U10 = (u10 ?? U00);
+        const U01 = (u01 ?? U00);
+        const U11 = (u11 ?? U00);
+
+        const V00 = (v00 ?? v10 ?? v01 ?? v11);
+        const V10 = (v10 ?? V00);
+        const V01 = (v01 ?? V00);
+        const V11 = (v11 ?? V00);
+
+        const u0 = U00*(1-dx)+U10*dx;
+        const u1 = U01*(1-dx)+U11*dx;
+        const v0 = V00*(1-dx)+V10*dx;
+        const v1 = V01*(1-dx)+V11*dx;
+
+        const u = u0*(1-dy)+u1*dy;
+        const v = v0*(1-dy)+v1*dy;
+        return {u,v};
+      }
+
+      // Colore blu->rosso scuro in base alla velocità (km/h)
+      colorForSpeed(kmh){
+        // clamp 0..80
+        const t = Math.max(0, Math.min(1, kmh / 80));
+        // semplice gradiente: blu (0) -> ciano -> verde -> giallo -> arancio -> rosso -> rosso scuro
+        const stops = [
+          [0.00, [40, 120, 255]],
+          [0.20, [70, 220, 255]],
+          [0.40, [80, 220, 120]],
+          [0.55, [220, 240, 90]],
+          [0.70, [255, 170, 60]],
+          [0.85, [255, 90, 60]],
+          [1.00, [140, 0, 0]]
+        ];
+        for(let i=0;i<stops.length-1;i++){
+          const [t0,c0]=stops[i], [t1,c1]=stops[i+1];
+          if(t>=t0 && t<=t1){
+            const k=(t-t0)/(t1-t0);
+            const r=Math.round(c0[0]*(1-k)+c1[0]*k);
+            const g=Math.round(c0[1]*(1-k)+c1[1]*k);
+            const b=Math.round(c0[2]*(1-k)+c1[2]*k);
+            return `rgba(${r},${g},${b},0.85)`;
+          }
+        }
+        return "rgba(40,120,255,0.85)";
+      }
+
+      seed(reset){
+        if(!this.wind) return;
+        const size = this.map.getSize();
+        const n = this.maxParticles;
+
+        if(reset) this.particles = [];
+
+        while(this.particles.length < n){
+          const x = Math.random() * size.x;
+          const y = Math.random() * size.y;
+          const ll = this.map.containerPointToLatLng([x,y]);
+
+          const uv = this.sampleUV(ll.lng, ll.lat);
+          if(!uv) continue;
+
+          this.particles.push({
+            x, y,
+            age: Math.floor(Math.random()*80) + 20
+          });
+        }
+      }
+
+      step(){
+        const ctx = this.ctx;
+        const size = this.map.getSize();
+
+        // fade
+        ctx.fillStyle = `rgba(11,15,20,${this.fade})`;
+        ctx.fillRect(0,0,size.x,size.y);
+
+        ctx.lineWidth = 1;
+
+        for(let p of this.particles){
+          const ll = this.map.containerPointToLatLng([p.x, p.y]);
+          const uv = this.sampleUV(ll.lng, ll.lat);
+
+          if(!uv || p.age <= 0){
+            // respawn
+            p.x = Math.random()*size.x;
+            p.y = Math.random()*size.y;
+            p.age = Math.floor(Math.random()*80)+20;
+            continue;
+          }
+
+          // uv è in m/s (probabile); convertiamo in km/h solo per colore
+          const speed_ms = Math.sqrt(uv.u*uv.u + uv.v*uv.v);
+          const speed_kmh = speed_ms * 3.6;
+
+          // Move: trasformo u/v in “direzione su schermo” approssimando con due punti latlng vicini
+          const ll2 = L.latLng(ll.lat + (uv.v*0.01), ll.lng + (uv.u*0.01));
+          const pt2 = this.map.latLngToContainerPoint(ll2);
+
+          const dx = (pt2.x - p.x);
+          const dy = (pt2.y - p.y);
+
+          const nx = p.x + dx * this.speedScale * 10;
+          const ny = p.y + dy * this.speedScale * 10;
+
+          ctx.strokeStyle = this.colorForSpeed(speed_kmh);
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(nx, ny);
+          ctx.stroke();
+
+          p.x = nx;
+          p.y = ny;
+          p.age -= 1;
+
+          // se esce fuori
+          if(p.x < 0 || p.x > size.x || p.y < 0 || p.y > size.y){
+            p.x = Math.random()*size.x;
+            p.y = Math.random()*size.y;
+            p.age = Math.floor(Math.random()*80)+20;
+          }
+        }
+      }
+
+      start(){
+        if(this._anim) return;
+        const tick = () => {
+          if(this.enabled){
+            this.step();
+            this._anim = requestAnimationFrame(tick);
+          } else {
+            this._anim = null;
+          }
+        };
+        this._anim = requestAnimationFrame(tick);
+      }
+
+      stop(){
+        if(this._anim){
+          cancelAnimationFrame(this._anim);
+          this._anim = null;
+        }
+      }
     }
 
-    /* =========================
-       Sampling value at point
-       ========================= */
-    function sampleScalar(field, latlng){
-      if(!field) return null;
-      const {nx, ny, bbox} = field;
-      const lonMin=bbox[0], latMin=bbox[1], lonMax=bbox[2], latMax=bbox[3];
+    // =========================
+    // COLOR SCALES
+    // =========================
+    function clamp01(t){ return Math.max(0, Math.min(1, t)); }
 
-      const lon = latlng.lng, lat = latlng.lat;
-      if(lon<lonMin || lon>lonMax || lat<latMin || lat>latMax) return null;
+    function lerp(a,b,t){ return a*(1-t)+b*t; }
 
-      const x = (lon - lonMin)/(lonMax-lonMin)*(nx-1);
-      const y = (latMax - lat)/(latMax-latMin)*(ny-1);
+    function rgba(r,g,b,a){ return [r|0,g|0,b|0,a|0]; }
 
-      const x0=Math.floor(x), y0=Math.floor(y);
-      const x1=Math.min(nx-1, x0+1), y1=Math.min(ny-1, y0+1);
-      const tx=x-x0, ty=y-y0;
-
-      const idx = (xx,yy)=> yy*nx+xx;
-      const a = field.values[idx(x0,y0)];
-      const b = field.values[idx(x1,y0)];
-      const c = field.values[idx(x0,y1)];
-      const d = field.values[idx(x1,y1)];
-      if([a,b,c,d].some(z => z==null)) return null;
-
-      const v0 = a*(1-tx)+b*tx;
-      const v1 = c*(1-tx)+d*tx;
-      return v0*(1-ty)+v1*ty;
+    function scaleTempC(tC){
+      // -5..35 -> blu -> verde -> giallo -> rosso
+      const t = clamp01((tC + 5) / 40);
+      const stops = [
+        [0.00, [40,120,255]],
+        [0.35, [80,220,120]],
+        [0.65, [255,220,90]],
+        [1.00, [220,40,40]]
+      ];
+      for(let i=0;i<stops.length-1;i++){
+        const [t0,c0]=stops[i], [t1,c1]=stops[i+1];
+        if(t>=t0 && t<=t1){
+          const k=(t-t0)/(t1-t0);
+          return rgba(lerp(c0[0],c1[0],k), lerp(c0[1],c1[1],k), lerp(c0[2],c1[2],k), 170);
+        }
+      }
+      return rgba(40,120,255,170);
     }
 
-    function sampleWind(field, latlng){
-      if(!field) return null;
-      const {nx, ny, bbox} = field;
-      const lonMin=bbox[0], latMin=bbox[1], lonMax=bbox[2], latMax=bbox[3];
-      const lon=latlng.lng, lat=latlng.lat;
-      if(lon<lonMin || lon>lonMax || lat<latMin || lat>latMax) return null;
-
-      const x = (lon - lonMin)/(lonMax-lonMin)*(nx-1);
-      const y = (latMax - lat)/(latMax-latMin)*(ny-1);
-
-      const x0=Math.floor(x), y0=Math.floor(y);
-      const x1=Math.min(nx-1, x0+1), y1=Math.min(ny-1, y0+1);
-      const tx=x-x0, ty=y-y0;
-      const idx = (xx,yy)=> yy*nx+xx;
-
-      const u00=field.u[idx(x0,y0)], v00=field.v[idx(x0,y0)];
-      const u10=field.u[idx(x1,y0)], v10=field.v[idx(x1,y0)];
-      const u01=field.u[idx(x0,y1)], v01=field.v[idx(x0,y1)];
-      const u11=field.u[idx(x1,y1)], v11=field.v[idx(x1,y1)];
-      if([u00,v00,u10,v10,u01,v01,u11,v11].some(z=>z==null)) return null;
-
-      const u0 = u00*(1-tx)+u10*tx;
-      const u1 = u01*(1-tx)+u11*tx;
-      const v0 = v00*(1-tx)+v10*tx;
-      const v1 = v01*(1-tx)+v11*tx;
-      const u = u0*(1-ty)+u1*ty;
-      const v = v0*(1-ty)+v1*ty;
-
-      const kmh = Math.sqrt(u*u+v*v)*3.6;
-      return {u,v,kmh};
+    function scaleRain(mmH){
+      // 0..20 mm/h (oltre diventa viola)
+      const t = clamp01(mmH / 20);
+      const stops = [
+        [0.00, [0,0,0,0]],     // trasparente
+        [0.05, [120,190,255,90]],
+        [0.25, [60,200,120,140]],
+        [0.50, [255,220,90,170]],
+        [0.75, [255,120,60,190]],
+        [1.00, [140,0,180,210]]
+      ];
+      for(let i=0;i<stops.length-1;i++){
+        const [t0,c0]=stops[i], [t1,c1]=stops[i+1];
+        if(t>=t0 && t<=t1){
+          const k=(t-t0)/(t1-t0);
+          return [
+            Math.round(lerp(c0[0],c1[0],k)),
+            Math.round(lerp(c0[1],c1[1],k)),
+            Math.round(lerp(c0[2],c1[2],k)),
+            Math.round(lerp(c0[3],c1[3],k))
+          ];
+        }
+      }
+      return [0,0,0,0];
     }
 
-    /* =========================
-       State
-       ========================= */
-    const state = {
-      meta: {
-        run: null,          // "YYYYMMDDHH"
-        steps: STEPS_DEFAULT,
-        stepHours: STEP_HOURS_DEFAULT,
-        source: "MeteoHub / Agenzia ItaliaMeteo (ICON-2I open data)"
-      },
-      step: 0,
-
-      fields: { temp:null, rain:null, pres:null, wind:null },
-      active: null, // "temp"|"rain"|"pres"|"wind"|null
-    };
-
-    /* =========================
-       UI elements
-       ========================= */
-    const el = {
-      chkTemp: document.getElementById("chkTemp"),
-      chkRain: document.getElementById("chkRain"),
-      chkPres: document.getElementById("chkPres"),
-      chkWind: document.getElementById("chkWind"),
-      slider: document.getElementById("stepSlider"),
-      reloadBtn: document.getElementById("reloadBtn"),
-      timeLabel: document.getElementById("timeLabel"),
-      runLabel: document.getElementById("runLabel"),
-      ptLabel: document.getElementById("ptLabel"),
-      valLabel: document.getElementById("valLabel"),
-      srcLabel: document.getElementById("srcLabel"),
-      infoTag: document.getElementById("infoTag"),
+    function scalePres(hPa){
+  

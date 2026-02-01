@@ -575,4 +575,77 @@
 
   function setClickMarker(latlng) {
     ensureClickMarker();
-    state.clickMarker.setLatLng(latlng
+    state.clickMarker.setLatLng(latlng);
+    state.clickMarker.setStyle({ opacity: 1, fillOpacity: 0.9 });
+  }
+
+  function toggleLayer(kind, on) {
+    // enforce single active at a time? No: allow multiple, but inspector uses "activeKind"
+    // Here: if you turn on one, keep others as is.
+
+    if (on) state.activeKind = kind;
+
+    applyOverlayVisibility(kind, on);
+
+    // if turning off active kind, pick another enabled
+    if (!on && state.activeKind === kind) {
+      const candidates = [
+        ["wind", el.chkWind.checked],
+        ["temp", el.chkTemp.checked],
+        ["rain", el.chkRain.checked],
+        ["pres", el.chkPres.checked]
+      ].filter(x => x[1]).map(x => x[0]);
+      state.activeKind = candidates.length ? candidates[0] : null;
+    }
+
+    // Refresh inspector display (if marker already placed)
+    if (state.clickMarker && state.activeKind) {
+      const ll = state.clickMarker.getLatLng();
+      updateInspectorAt(ll);
+    }
+  }
+
+  function applyOverlayVisibility(kind, on) {
+    const map = state.map;
+    if (!map) return;
+
+    const ov = state.overlays[kind];
+    if (on) {
+      if (ov) {
+        if (!map.hasLayer(ov)) ov.addTo(map);
+      }
+    } else {
+      if (ov && map.hasLayer(ov)) map.removeLayer(ov);
+    }
+  }
+
+  function setOverlay(kind, overlay) {
+    // remove old
+    const map = state.map;
+    if (state.overlays[kind] && map && map.hasLayer(state.overlays[kind])) {
+      map.removeLayer(state.overlays[kind]);
+    }
+    state.overlays[kind] = overlay;
+  }
+
+  async function updateForecastHour(forceBust = false) {
+    // Load only layers that are enabled (to keep it fast on mobile)
+    const wants = {
+      temp: el.chkTemp.checked,
+      rain: el.chkRain.checked,
+      pres: el.chkPres.checked,
+      wind: el.chkWind.checked
+    };
+
+    // Temp
+    if (wants.temp) {
+      const g = await loadGrid("temp", state.hour, forceBust);
+      state.grids.temp = g;
+      if (!state.overlays.temp) {
+        setOverlay("temp", createGridOverlay(g, "temp"));
+      } else {
+        state.overlays.temp.setGrid(g);
+      }
+      applyOverlayVisibility("temp", true);
+    } else {
+      applyOverla

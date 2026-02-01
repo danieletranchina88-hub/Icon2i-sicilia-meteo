@@ -1,651 +1,660 @@
-/* app.js — ICON-2I Sicily viewer (Leaflet)
-   Features:
-   - Time slider with real date/time (run + lead hours)
-   - Grid overlays for temp/pres/rain (rain as hourly from cumulative)
-   - Wind particles overlay (wind.js)
-   - Click inspector: shows value at clicked point for active layer
-*/
+/* =========================
+   CONFIG
+========================= */
+const DATA_DIR = "./data"; // deve esistere: /data/temp_000.json ecc.
+const CACHE_BUST = () => `v=${Date.now()}`;
 
-(function () {
-  "use strict";
+/* File naming */
+const FILES = {
+  temp: (h) => `${DATA_DIR}/temp_${String(h).padStart(3, "0")}.json`,
+  pres: (h) => `${DATA_DIR}/pres_${String(h).padStart(3, "0")}.json`,
+  rain: (h) => `${DATA_DIR}/rain_${String(h).padStart(3, "0")}.json`,
+  wind: (h) => `${DATA_DIR}/wind_${String(h).padStart(3, "0")}.json`,
+  runMeta:   () => `${DATA_DIR}/run.json`, // opzionale
+};
 
-  // -----------------------------
-  // Config
-  // -----------------------------
-  const DATA_DIR = "data"; // folder in repo
-  const META_URL = `${DATA_DIR}/run.json`;
-  const DEFAULT_CENTER = [37.55, 14.0];
-  const DEFAULT_ZOOM = 7;
+/* =========================
+   UI refs
+========================= */
+const el = {
+  btnReload: document.getElementById("btnReload"),
+  chkTemp: document.getElementById("chkTemp"),
+  chkRain: document.getElementById("chkRain"),
+  chkPres: document.getElementById("chkPres"),
+  chkWind: document.getElementById("chkWind"),
+  sliderHour: document.getElementById("sliderHour"),
+  lblTime: document.getElementById("lblTime"),
+  lblRun: document.getElementById("lblRun"),
+  lblStatus: document.getElementById("lblStatus"),
+  lblPoint: document.getElementById("lblPoint"),
+  lblValue: document.getElementById("lblValue"),
+};
 
-  // Change this if you want to force-refresh assets from UI:
-  function cacheBust() {
-    // Use current timestamp for strong bust
-    return `v=${Date.now()}`;
+/* =========================
+   Map init
+========================= */
+const map = L.map("map", {
+  zoomControl: true,
+  preferCanvas: true,
+});
+
+const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: "&copy; OpenStreetMap",
+});
+osm.addTo(map);
+
+/* Sicilia-ish view */
+map.setView([37.55, 14.25], 7);
+
+/* =========================
+   Helpers
+========================= */
+function setStatus(msg) {
+  el.lblStatus.textContent = msg;
+}
+
+function safeNumber(x) {
+  if (x === null || x === undefined) return null;
+  if (Number.isNaN(x)) return null;
+  if (x === "NaN") return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseRunToDateUTC(runStr) {
+  // runStr: "YYYYMMDDHH" in UTC
+  if (!runStr || runStr.length !== 10) return null;
+  const y = Number(runStr.slice(0, 4));
+  const m = Number(runStr.slice(4, 6)) - 1;
+  const d = Number(runStr.slice(6, 8));
+  const h = Number(runStr.slice(8, 10));
+  return new Date(Date.UTC(y, m, d, h, 0, 0));
+}
+
+function formatDateRome(dt) {
+  // Visualizza in Europe/Rome
+  const fmt = new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return fmt.format(dt);
+}
+
+/* Bilinear sampling on regular lat/lon grid */
+function bilinearSample(grid, lon, lat) {
+  // grid: {nx, ny, bbox:[lonMin, latMin, lonMax, latMax], values:Array}
+  // values are row-major from north->south? unknown. We handle both by trying "lat reversed" consistently.
+  const { nx, ny, bbox } = grid;
+  const values = grid.values;
+  const lonMin = bbox[0], latMin = bbox[1], lonMax = bbox[2], latMax = bbox[3];
+
+  if (lon < lonMin || lon > lonMax || lat < latMin || lat > latMax) return null;
+
+  // x: 0..nx-1
+  const x = (lon - lonMin) / (lonMax - lonMin) * (nx - 1);
+
+  // Many grids are stored top->bottom (north->south). bbox latMin..latMax is bottom..top.
+  // We'll map lat to y with north at y=0.
+  const yNorth = (latMax - lat) / (latMax - latMin) * (ny - 1);
+
+  const x0 = Math.floor(x), x1 = Math.min(x0 + 1, nx - 1);
+  const y0 = Math.floor(yNorth), y1 = Math.min(y0 + 1, ny - 1);
+
+  const dx = x - x0;
+  const dy = yNorth - y0;
+
+  function v(ix, iy) {
+    const idx = iy * nx + ix;
+    const n = safeNumber(values[idx]);
+    return n;
   }
 
-  function pad3(n) {
-    const s = String(n);
-    return s.length >= 3 ? s : ("000" + s).slice(-3);
+  const v00 = v(x0, y0); const v10 = v(x1, y0);
+  const v01 = v(x0, y1); const v11 = v(x1, y1);
+
+  // If too many nulls, return null
+  const candidates = [v00, v10, v01, v11].filter(x => x !== null);
+  if (candidates.length < 2) return null;
+
+  // Replace nulls with nearest available to avoid holes on coasts
+  const fill = (a, b, c, d) => {
+    const arr = [a, b, c, d];
+    const first = arr.find(z => z !== null);
+    return first === undefined ? null : first;
+  };
+  const f00 = v00 ?? fill(v10, v01, v11, null);
+  const f10 = v10 ?? fill(v00, v11, v01, null);
+  const f01 = v01 ?? fill(v00, v11, v10, null);
+  const f11 = v11 ?? fill(v10, v01, v00, null);
+
+  const i0 = f00 * (1 - dx) + f10 * dx;
+  const i1 = f01 * (1 - dx) + f11 * dx;
+  return i0 * (1 - dy) + i1 * dy;
+}
+
+/* =========================
+   Color ramps
+========================= */
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp01(t) { return Math.max(0, Math.min(1, t)); }
+
+function rampBlueToRed(t) {
+  // blu -> ciano -> verde -> giallo -> arancio -> rosso scuro
+  t = clamp01(t);
+  const stops = [
+    { t: 0.00, c: [0, 80, 255, 210] },   // blue
+    { t: 0.20, c: [0, 200, 255, 210] },  // cyan
+    { t: 0.40, c: [0, 220, 120, 210] },  // green
+    { t: 0.60, c: [255, 230, 0, 215] },  // yellow
+    { t: 0.78, c: [255, 140, 0, 220] },  // orange
+    { t: 1.00, c: [170, 0, 0, 235] },    // dark red
+  ];
+  let a = stops[0], b = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i].t && t <= stops[i + 1].t) { a = stops[i]; b = stops[i + 1]; break; }
   }
+  const u = (t - a.t) / (b.t - a.t || 1);
+  return [
+    Math.round(lerp(a.c[0], b.c[0], u)),
+    Math.round(lerp(a.c[1], b.c[1], u)),
+    Math.round(lerp(a.c[2], b.c[2], u)),
+    Math.round(lerp(a.c[3], b.c[3], u)),
+  ];
+}
 
-  function isFiniteNumber(x) {
-    const n = Number(x);
-    return Number.isFinite(n);
-  }
+function rampTempC(v) {
+  // -5..40°C
+  const t = clamp01((v - (-5)) / (40 - (-5)));
+  return rampBlueToRed(t);
+}
 
-  // Convert JSON text that may include NaN into valid JSON (replace NaN with null).
-  function parseJsonAllowNaN(text) {
-    // Replace bare NaN tokens (not in strings) with null.
-    // This is pragmatic, fast, and works for your dataset.
-    const fixed = text.replace(/\bNaN\b/g, "null");
-    return JSON.parse(fixed);
-  }
+function rampPresHpa(v) {
+  // 980..1040 hPa
+  const t = clamp01((v - 980) / (1040 - 980));
+  return rampBlueToRed(t);
+}
 
-  async function fetchJsonAllowNaN(url) {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status} su ${url}`);
-    const text = await res.text();
-    return parseJsonAllowNaN(text);
-  }
+function rampRainMmH(v) {
+  // 0..20 mm/h
+  const t = clamp01(v / 20);
+  // per pioggia: più “freddo” all’inizio, poi rosso
+  return rampBlueToRed(t);
+}
 
-  function parseRunToDate(runStr) {
-    // Expected "YYYYMMDDHH" in UTC (typical NWP cycle, e.g., 2026013112)
-    if (!runStr || runStr.length < 10) return null;
-    const Y = Number(runStr.slice(0, 4));
-    const M = Number(runStr.slice(4, 6));
-    const D = Number(runStr.slice(6, 8));
-    const H = Number(runStr.slice(8, 10));
-    if (![Y, M, D, H].every(Number.isFinite)) return null;
-    // create as UTC
-    return new Date(Date.UTC(Y, M - 1, D, H, 0, 0));
-  }
+/* =========================
+   Canvas scalar layer
+========================= */
+function makeScalarCanvasLayer({ name, getGrid, valueToRgba, valueLabel }) {
+  let layer = null;
 
-  function formatDateTimeLocal(date) {
-    // Europe/Rome is your natural target; browser will format in local timezone.
-    // If you want strict Europe/Rome regardless of user timezone, set timeZone below.
-    const fmt = new Intl.DateTimeFormat("it-IT", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-    return fmt.format(date);
-  }
-
-  function formatRunUTC(dateUtc) {
-    const fmt = new Intl.DateTimeFormat("it-IT", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "UTC"
-    });
-    return `${fmt.format(dateUtc)}Z`;
-  }
-
-  // -----------------------------
-  // Color scales (temp/pres/rain)
-  // -----------------------------
-  function clamp01(t) { return Math.max(0, Math.min(1, t)); }
-
-  function lerp(a, b, t) { return a + (b - a) * t; }
-
-  function lerpColor(c0, c1, t) {
-    return [
-      Math.round(lerp(c0[0], c1[0], t)),
-      Math.round(lerp(c0[1], c1[1], t)),
-      Math.round(lerp(c0[2], c1[2], t)),
-      Math.round(lerp(c0[3], c1[3], t))
-    ];
-  }
-
-  function rgba(c) {
-    return `rgba(${c[0]},${c[1]},${c[2]},${(c[3] ?? 255) / 255})`;
-  }
-
-  function tempColorC(tC) {
-    // -10 .. 40 C
-    const stops = [
-      [-10, [60, 120, 255, 200]],
-      [0,   [80, 200, 255, 210]],
-      [10,  [120, 255, 170, 220]],
-      [20,  [240, 240, 120, 230]],
-      [30,  [255, 170, 90, 240]],
-      [40,  [255, 80, 80, 250]]
-    ];
-    return scaleStops(tC, stops);
-  }
-
-  function presColorHpa(p) {
-    // 980..1035 hPa
-    const stops = [
-      [980, [120, 160, 255, 180]],
-      [995, [140, 220, 220, 190]],
-      [1010,[180, 240, 160, 200]],
-      [1020,[240, 240, 120, 210]],
-      [1035,[255, 150, 90, 220]]
-    ];
-    return scaleStops(p, stops);
-  }
-
-  function rainColorMm(h) {
-    // hourly mm (0..20+)
-    const stops = [
-      [0,  [0, 0, 0, 0]],
-      [0.1,[120, 180, 255, 120]],
-      [1,  [60, 200, 220, 170]],
-      [5,  [80, 220, 120, 200]],
-      [10, [240, 240, 100, 220]],
-      [20, [255, 140, 80, 235]],
-      [40, [255, 60, 60, 250]]
-    ];
-    return scaleStops(h, stops);
-  }
-
-  function scaleStops(x, stops) {
-    if (!isFiniteNumber(x)) return [0,0,0,0];
-    if (x <= stops[0][0]) return stops[0][1];
-    if (x >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
-    for (let i = 0; i < stops.length - 1; i++) {
-      const a = stops[i][0], ca = stops[i][1];
-      const b = stops[i + 1][0], cb = stops[i + 1][1];
-      if (x >= a && x <= b) {
-        const t = (x - a) / (b - a || 1);
-        return lerpColor(ca, cb, t);
-      }
-    }
-    return stops[stops.length - 1][1];
-  }
-
-  // -----------------------------
-  // Grid utilities
-  // -----------------------------
-  function bboxToBounds(bbox) {
-    return L.latLngBounds(
-      L.latLng(bbox[1], bbox[0]),
-      L.latLng(bbox[3], bbox[2])
-    );
-  }
-
-  function lonLatToGridXY(lon, lat, grid) {
-    const [minLon, minLat, maxLon, maxLat] = grid.bbox;
-    const nx = grid.nx, ny = grid.ny;
-    if (nx < 2 || ny < 2) return null;
-
-    // x goes west->east (minLon->maxLon)
-    const fx = (lon - minLon) / (maxLon - minLon);
-    // y assumption: row 0 is NORTH (maxLat) -> row increases to SOUTH (minLat)
-    const fy = (maxLat - lat) / (maxLat - minLat);
-
-    if (!isFiniteNumber(fx) || !isFiniteNumber(fy)) return null;
-
-    const x = fx * (nx - 1);
-    const y = fy * (ny - 1);
-
-    return { x, y };
-  }
-
-  function bilinearSample(values, nx, ny, x, y) {
-    const x0 = Math.floor(x), y0 = Math.floor(y);
-    const x1 = Math.min(nx - 1, x0 + 1);
-    const y1 = Math.min(ny - 1, y0 + 1);
-
-    if (x0 < 0 || y0 < 0 || x0 >= nx || y0 >= ny) return null;
-
-    const i00 = y0 * nx + x0;
-    const i10 = y0 * nx + x1;
-    const i01 = y1 * nx + x0;
-    const i11 = y1 * nx + x1;
-
-    const v00 = values[i00];
-    const v10 = values[i10];
-    const v01 = values[i01];
-    const v11 = values[i11];
-
-    // if all null -> null
-    const ok00 = isFiniteNumber(v00), ok10 = isFiniteNumber(v10), ok01 = isFiniteNumber(v01), ok11 = isFiniteNumber(v11);
-    if (!ok00 && !ok10 && !ok01 && !ok11) return null;
-
-    // Replace missing corners by nearest available (simple robust fallback)
-    const fill = (v) => (isFiniteNumber(v) ? v : null);
-    const a00 = fill(v00), a10 = fill(v10), a01 = fill(v01), a11 = fill(v11);
-
-    // if some are null, use nearest non-null
-    const nearest = (x, y) => {
-      const candidates = [
-        {v: a00, dx: 0, dy: 0},
-        {v: a10, dx: 1, dy: 0},
-        {v: a01, dx: 0, dy: 1},
-        {v: a11, dx: 1, dy: 1},
-      ].filter(o => o.v !== null);
-      if (!candidates.length) return null;
-      candidates.sort((p, q) => (Math.abs(p.dx - x) + Math.abs(p.dy - y)) - (Math.abs(q.dx - x) + Math.abs(q.dy - y)));
-      return candidates[0].v;
-    };
-
-    const f00 = (a00 !== null) ? a00 : nearest(0,0);
-    const f10 = (a10 !== null) ? a10 : nearest(1,0);
-    const f01 = (a01 !== null) ? a01 : nearest(0,1);
-    const f11 = (a11 !== null) ? a11 : nearest(1,1);
-    if (![f00,f10,f01,f11].every(isFiniteNumber)) return null;
-
-    const tx = x - x0;
-    const ty = y - y0;
-
-    const v0 = f00 * (1 - tx) + f10 * tx;
-    const v1 = f01 * (1 - tx) + f11 * tx;
-    return v0 * (1 - ty) + v1 * ty;
-  }
-
-  // -----------------------------
-  // Canvas grid layer (temp/pres/rain)
-  // -----------------------------
-  const GridCanvasLayer = L.Layer.extend({
-    initialize: function (grid, painterFn, options) {
-      this._grid = grid;
-      this._paint = painterFn;
-      this.options = options || {};
-      this._canvas = null;
-      this._ctx = null;
-      this._map = null;
-      this._frame = null;
-    },
-
-    onAdd: function (map) {
+  const ScalarLayer = L.Layer.extend({
+    onAdd: function(map) {
       this._map = map;
-      this._canvas = L.DomUtil.create("canvas", "leaflet-grid-canvas");
+      this._canvas = L.DomUtil.create("canvas", "scalar-canvas");
       this._canvas.style.position = "absolute";
-      this._canvas.style.top = "0";
-      this._canvas.style.left = "0";
       this._canvas.style.pointerEvents = "none";
-      map.getPanes().overlayPane.appendChild(this._canvas);
-      this._ctx = this._canvas.getContext("2d", { alpha: true });
+      const pane = map.getPanes().overlayPane;
+      pane.appendChild(this._canvas);
 
-      map.on("moveend zoomend resize", this._scheduleRedraw, this);
-      this._reset();
+      this._ctx = this._canvas.getContext("2d", { willReadFrequently: false });
+
+      map.on("moveend zoomend resize", this._redraw, this);
       this._redraw();
     },
-
-    onRemove: function (map) {
-      map.off("moveend zoomend resize", this._scheduleRedraw, this);
-      if (this._frame) cancelAnimationFrame(this._frame);
-      this._frame = null;
-
-      if (this._canvas && this._canvas.parentNode) {
-        this._canvas.parentNode.removeChild(this._canvas);
-      }
+    onRemove: function(map) {
+      map.off("moveend zoomend resize", this._redraw, this);
+      if (this._canvas && this._canvas.parentNode) this._canvas.parentNode.removeChild(this._canvas);
+      this._map = null;
       this._canvas = null;
       this._ctx = null;
-      this._map = null;
     },
-
-    setGrid: function (grid) {
-      this._grid = grid;
-      this._scheduleRedraw();
-    },
-
-    _scheduleRedraw: function () {
-      if (!this._map) return;
-      if (this._frame) return;
-      this._frame = requestAnimationFrame(() => {
-        this._frame = null;
-        this._reset();
-        this._redraw();
-      });
-    },
-
-    _reset: function () {
-      if (!this._map || !this._canvas) return;
+    _redraw: function() {
+      if (!this._map || !this._canvas || !this._ctx) return;
       const size = this._map.getSize();
       this._canvas.width = size.x;
       this._canvas.height = size.y;
-      const pos = this._map._getMapPanePos();
-      L.DomUtil.setPosition(this._canvas, pos);
-    },
 
-    _redraw: function () {
-      if (!this._map || !this._ctx || !this._grid) return;
+      const grid = getGrid();
+      if (!grid) return;
 
-      const grid = this._grid;
-      const nx = grid.nx, ny = grid.ny, bbox = grid.bbox;
-      const values = grid.values;
+      // Performance: render on a smaller offscreen buffer then scale up
+      const maxDim = 520; // mobile-friendly
+      const scale = Math.min(1, maxDim / Math.max(size.x, size.y));
+      const w = Math.max(2, Math.round(size.x * scale));
+      const h = Math.max(2, Math.round(size.y * scale));
 
-      if (!nx || !ny || !bbox || !Array.isArray(values)) {
-        this._ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
-        return;
-      }
+      const off = document.createElement("canvas");
+      off.width = w;
+      off.height = h;
+      const octx = off.getContext("2d");
 
-      const gridBounds = bboxToBounds(bbox);
-      if (!this._map.getBounds().intersects(gridBounds)) {
-        this._ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
-        return;
-      }
-
-      // Render at a resolution depending on zoom for smoother look
-      const z = this._map.getZoom();
-      const scale = z <= 7 ? 0.35 : z <= 9 ? 0.55 : 0.8; // internal resolution
-      const w = Math.max(220, Math.floor(this._canvas.width * scale));
-      const h = Math.max(220, Math.floor(this._canvas.height * scale));
-
-      const img = this._ctx.createImageData(w, h);
+      const img = octx.createImageData(w, h);
       const data = img.data;
 
-      // For each pixel, map to lat/lon then sample grid
-      const sw = this._map.containerPointToLatLng([0, this._canvas.height]);
-      const ne = this._map.containerPointToLatLng([this._canvas.width, 0]);
+      for (let j = 0; j < h; j++) {
+        for (let i = 0; i < w; i++) {
+          const px = (i / (w - 1)) * size.x;
+          const py = (j / (h - 1)) * size.y;
+          const ll = this._map.containerPointToLatLng([px, py]);
 
-      const minLonView = sw.lng;
-      const maxLonView = ne.lng;
-      const minLatView = sw.lat;
-      const maxLatView = ne.lat;
+          const val = bilinearSample(grid, ll.lng, ll.lat);
+          const idx = (j * w + i) * 4;
 
-      for (let py = 0; py < h; py++) {
-        const ty = py / (h - 1);
-        const lat = maxLatView - ty * (maxLatView - minLatView);
-
-        for (let px = 0; px < w; px++) {
-          const tx = px / (w - 1);
-          const lon = minLonView + tx * (maxLonView - minLonView);
-
-          // quickly skip outside grid bbox
-          const [minLon, minLat, maxLon, maxLat] = bbox;
-          if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) {
-            const k = (py * w + px) * 4;
-            data[k + 3] = 0;
+          if (val === null) {
+            data[idx + 3] = 0;
             continue;
           }
 
-          const xy = lonLatToGridXY(lon, lat, grid);
-          if (!xy) {
-            const k = (py * w + px) * 4;
-            data[k + 3] = 0;
-            continue;
-          }
-
-          const v = bilinearSample(values, nx, ny, xy.x, xy.y);
-          const col = this._paint(v);
-
-          const k = (py * w + px) * 4;
-          data[k + 0] = col[0];
-          data[k + 1] = col[1];
-          data[k + 2] = col[2];
-          data[k + 3] = col[3] ?? 0;
+          const rgba = valueToRgba(val);
+          data[idx + 0] = rgba[0];
+          data[idx + 1] = rgba[1];
+          data[idx + 2] = rgba[2];
+          data[idx + 3] = rgba[3];
         }
       }
 
-      // Draw scaled up to full canvas
-      const ctx = this._ctx;
-      ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
+      octx.putImageData(img, 0, 0);
 
-      // crisp upscaling
-      ctx.imageSmoothingEnabled = true;
-      // draw
-      const tmp = document.createElement("canvas");
-      tmp.width = w;
-      tmp.height = h;
-      tmp.getContext("2d").putImageData(img, 0, 0);
-      ctx.drawImage(tmp, 0, 0, this._canvas.width, this._canvas.height);
+      this._ctx.clearRect(0, 0, size.x, size.y);
+      this._ctx.imageSmoothingEnabled = true;
+      this._ctx.drawImage(off, 0, 0, size.x, size.y);
     }
   });
 
-  function createGridOverlay(grid, kind) {
-    if (kind === "temp") return new GridCanvasLayer(grid, (v) => tempColorC(v));
-    if (kind === "pres") return new GridCanvasLayer(grid, (v) => presColorHpa(v));
-    if (kind === "rain") return new GridCanvasLayer(grid, (v) => rainColorMm(v));
-    return null;
-  }
+  layer = new ScalarLayer();
 
-  // -----------------------------
-  // App state
-  // -----------------------------
-  const state = {
-    map: null,
-    meta: null,
-    runDateUtc: null,
-    maxHour: 0,
-    hour: 0,
-
-    activeKind: null, // "temp"|"rain"|"pres"|"wind"
-    overlays: {
-      temp: null,
-      rain: null,
-      pres: null,
-      wind: null
-    },
-
-    grids: {
-      temp: null,
-      rain: null,
-      pres: null,
-      wind: null
-    },
-
-    clickMarker: null
+  return {
+    name,
+    layer,
+    valueLabel, // function(val) -> string
+    getValueAtLatLng: (latlng) => {
+      const grid = getGrid();
+      if (!grid) return null;
+      return bilinearSample(grid, latlng.lng, latlng.lat);
+    }
   };
+}
 
-  // -----------------------------
-  // UI
-  // -----------------------------
-  const el = {};
-  function bindUI() {
-    el.btnReload = document.getElementById("btnReload");
-    el.metaError = document.getElementById("metaError");
+/* =========================
+   Wind layer (leaflet-velocity)
+========================= */
+function makeWindLayer({ getWindGrid, speedToColorScale }) {
+  let velocityLayer = null;
 
-    el.chkTemp = document.getElementById("chkTemp");
-    el.chkRain = document.getElementById("chkRain");
-    el.chkPres = document.getElementById("chkPres");
-    el.chkWind = document.getElementById("chkWind");
+  function buildVelocityData(wind) {
+    // expected wind: {nx, ny, bbox, u, v}
+    const nx = wind.nx, ny = wind.ny;
+    const [lonMin, latMin, lonMax, latMax] = wind.bbox;
 
-    el.slider = document.getElementById("timeSlider");
-    el.timeLabel = document.getElementById("timeLabel");
-    el.timeSubLabel = document.getElementById("timeSubLabel");
-
-    el.sourceLabel = document.getElementById("sourceLabel");
-    el.inspectorLabel = document.getElementById("inspectorLabel");
-    el.inspectorValue = document.getElementById("inspectorValue");
-
-    el.btnReload.addEventListener("click", () => reloadAll(true));
-
-    el.chkTemp.addEventListener("change", () => toggleLayer("temp", el.chkTemp.checked));
-    el.chkRain.addEventListener("change", () => toggleLayer("rain", el.chkRain.checked));
-    el.chkPres.addEventListener("change", () => toggleLayer("pres", el.chkPres.checked));
-    el.chkWind.addEventListener("change", () => toggleLayer("wind", el.chkWind.checked));
-
-    el.slider.addEventListener("input", async () => {
-      const h = Number(el.slider.value);
-      if (!Number.isFinite(h)) return;
-      state.hour = h;
-      updateTimeLabels();
-      await updateForecastHour();
-    });
-  }
-
-  function setError(msg) {
-    if (!msg) {
-      el.metaError.style.display = "none";
-      el.metaError.textContent = "";
-      return;
-    }
-    el.metaError.style.display = "block";
-    el.metaError.textContent = msg;
-  }
-
-  function updateTimeLabels() {
-    if (!state.runDateUtc) {
-      el.timeLabel.textContent = "Ora previsione: —";
-      el.timeSubLabel.textContent = "Run: —";
-      return;
-    }
-
-    const runUtc = state.runDateUtc;
-    const valid = new Date(runUtc.getTime() + state.hour * 3600 * 1000);
-
-    el.timeLabel.textContent = `Ora previsione: ${formatDateTimeLocal(valid)} (h+${state.hour})`;
-    el.timeSubLabel.textContent = `Run: ${formatRunUTC(runUtc)} — Valid: ${formatRunUTC(valid)}`;
-  }
-
-  // -----------------------------
-  // Meta + loading
-  // -----------------------------
-  async function loadMeta(forceBust) {
-    const url = forceBust ? `${META_URL}?${cacheBust()}` : `${META_URL}`;
-    const meta = await fetchJsonAllowNaN(url);
-
-    // meta expected: { run: "YYYYMMDDHH", source: "...", hours: 48 } (hours optional)
-    state.meta = meta;
-    state.runDateUtc = parseRunToDate(meta.run);
-
-    // Determine max hour:
-    // If meta.hours exists, use it; otherwise infer from available files by assuming 48.
-    state.maxHour = Number.isFinite(Number(meta.hours)) ? Number(meta.hours) : 48;
-
-    el.slider.min = "0";
-    el.slider.max = String(state.maxHour);
-    el.slider.value = String(state.hour);
-
-    el.sourceLabel.textContent = `Fonte dati: ${meta.source || "—"} — ICON-2I open data`;
-    updateTimeLabels();
-  }
-
-  function fileUrl(kind, hour, forceBust) {
-    const h = pad3(hour);
-    const base =
-      kind === "temp" ? `${DATA_DIR}/temp_${h}.json` :
-      kind === "rain" ? `${DATA_DIR}/rain_${h}.json` :
-      kind === "pres" ? `${DATA_DIR}/pres_${h}.json` :
-      kind === "wind" ? `${DATA_DIR}/wind_${h}.json` :
-      null;
-    if (!base) return null;
-    return forceBust ? `${base}?${cacheBust()}` : base;
-  }
-
-  async function loadGrid(kind, hour, forceBust) {
-    const url = fileUrl(kind, hour, forceBust);
-    if (!url) throw new Error(`URL non valido per layer ${kind}`);
-    return await fetchJsonAllowNaN(url);
-  }
-
-  async function loadRainHourly(hour, forceBust) {
-    // If rain files are cumulative, compute hourly = rain(h) - rain(h-1).
-    // If they are already hourly, subtraction may create negatives -> clamp to 0
-    const cur = await loadGrid("rain", hour, forceBust);
-    if (!cur || !Array.isArray(cur.values)) return cur;
-
-    if (hour <= 0) return cur;
-
-    const prev = await loadGrid("rain", hour - 1, forceBust);
-    if (!prev || !Array.isArray(prev.values)) return cur;
-
-    const out = {
-      nx: cur.nx,
-      ny: cur.ny,
-      bbox: cur.bbox,
-      values: new Array(cur.values.length)
+    // Leaflet-velocity expects GRIB-like headers
+    const headerBase = {
+      lo1: lonMin,
+      la1: latMax,      // north
+      lo2: lonMax,
+      la2: latMin,      // south
+      dx: (lonMax - lonMin) / (nx - 1),
+      dy: (latMax - latMin) / (ny - 1),
+      nx,
+      ny,
+      refTime: new Date().toISOString(),
+      forecastTime: 0,
+      gridDefinitionTemplate: 0,
     };
 
-    for (let i = 0; i < cur.values.length; i++) {
-      const a = cur.values[i];
-      const b = prev.values[i];
-      if (!isFiniteNumber(a) || !isFiniteNumber(b)) {
-        out.values[i] = null;
-        continue;
-      }
-      const d = a - b;
-      out.values[i] = (d >= 0 ? d : 0);
-    }
-    return out;
-  }
-
-  // -----------------------------
-  // Overlay management
-  // -----------------------------
-  function ensureClickMarker() {
-    if (state.clickMarker) return;
-    state.clickMarker = L.circleMarker(DEFAULT_CENTER, {
-      radius: 6,
-      weight: 2,
-      color: "#ffffff",
-      fillColor: "#2b8cff",
-      fillOpacity: 0.9
-    }).addTo(state.map);
-    state.clickMarker.setStyle({ opacity: 0, fillOpacity: 0 });
-  }
-
-  function setClickMarker(latlng) {
-    ensureClickMarker();
-    state.clickMarker.setLatLng(latlng);
-    state.clickMarker.setStyle({ opacity: 1, fillOpacity: 0.9 });
-  }
-
-  function toggleLayer(kind, on) {
-    // enforce single active at a time? No: allow multiple, but inspector uses "activeKind"
-    // Here: if you turn on one, keep others as is.
-
-    if (on) state.activeKind = kind;
-
-    applyOverlayVisibility(kind, on);
-
-    // if turning off active kind, pick another enabled
-    if (!on && state.activeKind === kind) {
-      const candidates = [
-        ["wind", el.chkWind.checked],
-        ["temp", el.chkTemp.checked],
-        ["rain", el.chkRain.checked],
-        ["pres", el.chkPres.checked]
-      ].filter(x => x[1]).map(x => x[0]);
-      state.activeKind = candidates.length ? candidates[0] : null;
-    }
-
-    // Refresh inspector display (if marker already placed)
-    if (state.clickMarker && state.activeKind) {
-      const ll = state.clickMarker.getLatLng();
-      updateInspectorAt(ll);
-    }
-  }
-
-  function applyOverlayVisibility(kind, on) {
-    const map = state.map;
-    if (!map) return;
-
-    const ov = state.overlays[kind];
-    if (on) {
-      if (ov) {
-        if (!map.hasLayer(ov)) ov.addTo(map);
-      }
-    } else {
-      if (ov && map.hasLayer(ov)) map.removeLayer(ov);
-    }
-  }
-
-  function setOverlay(kind, overlay) {
-    // remove old
-    const map = state.map;
-    if (state.overlays[kind] && map && map.hasLayer(state.overlays[kind])) {
-      map.removeLayer(state.overlays[kind]);
-    }
-    state.overlays[kind] = overlay;
-  }
-
-  async function updateForecastHour(forceBust = false) {
-    // Load only layers that are enabled (to keep it fast on mobile)
-    const wants = {
-      temp: el.chkTemp.checked,
-      rain: el.chkRain.checked,
-      pres: el.chkPres.checked,
-      wind: el.chkWind.checked
+    const uComp = {
+      header: {
+        ...headerBase,
+        parameterCategory: 2,
+        parameterNumber: 2,
+        parameterNumberName: "eastward_wind",
+        parameterUnit: "m.s-1",
+      },
+      data: wind.u.map(x => (safeNumber(x) ?? null)),
     };
 
-    // Temp
-    if (wants.temp) {
-      const g = await loadGrid("temp", state.hour, forceBust);
-      state.grids.temp = g;
-      if (!state.overlays.temp) {
-        setOverlay("temp", createGridOverlay(g, "temp"));
-      } else {
-        state.overlays.temp.setGrid(g);
+    const vComp = {
+      header: {
+        ...headerBase,
+        parameterCategory: 2,
+        parameterNumber: 3,
+        parameterNumberName: "northward_wind",
+        parameterUnit: "m.s-1",
+      },
+      data: wind.v.map(x => (safeNumber(x) ?? null)),
+    };
+
+    return [uComp, vComp];
+  }
+
+  function makeColorScale() {
+    // leaflet-velocity uses an array of [value, color] pairs (m/s)
+    // Convert km/h scale idea to m/s for rendering.
+    // 0 km/h -> 0 m/s ; 100 km/h -> 27.78 m/s
+    const pts = [];
+    const maxMs = 28;
+    const steps = 12;
+    for (let i = 0; i <= steps; i++) {
+      const ms = (i / steps) * maxMs;
+      const t = i / steps;
+      const rgba = rampBlueToRed(t);
+      const color = `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3]/255})`;
+      pts.push([ms, color]);
+    }
+    return pts;
+  }
+
+  return {
+    ensureOnMap: () => {
+      if (velocityLayer) return velocityLayer;
+
+      const scale = makeColorScale();
+
+      velocityLayer = L.velocityLayer({
+        displayValues: false,
+        displayOptions: { velocityType: "Wind" },
+        data: [],
+        velocityScale: 0.02,   // particle speed
+        particleAge: 60,
+        particleMultiplier: 1 / 220, // density
+        frameRate: 20,
+        lineWidth: 2,
+        colorScale: scale,
+      });
+
+      return velocityLayer;
+    },
+    setData: (windGrid) => {
+      const layer = velocityLayer;
+      if (!layer) return;
+      if (!windGrid) return;
+
+      if (!Array.isArray(windGrid.u) || !Array.isArray(windGrid.v)) {
+        setStatus("Vento: manca u/v nel JSON (serve u e v).");
+        return;
       }
-      applyOverlayVisibility("temp", true);
+      if (windGrid.u.length !== windGrid.v.length) {
+        setStatus("Vento: u e v hanno lunghezze diverse.");
+        return;
+      }
+
+      const data = buildVelocityData(windGrid);
+      layer.setData(data);
+    },
+    getValueAtLatLng: (latlng) => {
+      const wind = getWindGrid();
+      if (!wind || !wind.u || !wind.v) return null;
+      // velocità = sqrt(u^2+v^2) (m/s)
+      const u = bilinearSample({ ...wind, values: wind.u, nx: wind.nx, ny: wind.ny, bbox: wind.bbox }, latlng.lng, latlng.lat);
+      const v = bilinearSample({ ...wind, values: wind.v, nx: wind.nx, ny: wind.ny, bbox: wind.bbox }, latlng.lng, latlng.lat);
+      if (u === null || v === null) return null;
+      return Math.sqrt(u*u + v*v);
+    }
+  };
+}
+
+/* =========================
+   State + data cache
+========================= */
+let runStr = null;          // "YYYYMMDDHH"
+let runDateUTC = null;
+let maxHour = 0;
+let currentHour = 0;
+
+const cache = {
+  temp: new Map(),
+  pres: new Map(),
+  rain: new Map(),  // stored as original (likely accum)
+  wind: new Map(),
+};
+
+function activeLayerName() {
+  if (el.chkWind.checked) return "wind";
+  if (el.chkTemp.checked) return "temp";
+  if (el.chkRain.checked) return "rain";
+  if (el.chkPres.checked) return "pres";
+  return null;
+}
+
+/* =========================
+   Fetchers
+========================= */
+async function fetchJson(url) {
+  const full = `${url}?${CACHE_BUST()}`;
+  const r = await fetch(full, { cache: "no-store" });
+  if (!r.ok) throw new Error(`HTTP ${r.status} su ${url}`);
+  return await r.json();
+}
+
+async function loadMeta() {
+  // Prova a leggere data/run.json, se non esiste non deve spaccare tutto.
+  try {
+    const meta = await fetchJson(FILES.runMeta());
+    // meta possibili:
+    // { "run": "2026013112", "hours": 48, "source": "..." }
+    if (meta && meta.run) {
+      runStr = String(meta.run);
+      runDateUTC = parseRunToDateUTC(runStr);
+    }
+    if (meta && meta.hours) {
+      maxHour = Math.max(0, Number(meta.hours) - 1);
+    }
+    const src = meta && meta.source ? String(meta.source) : "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data";
+    setStatus("OK");
+    return src;
+  } catch (e) {
+    // fallback: prova a dedurre run dal nome in pagina precedente: NON si può senza lista directory,
+    // quindi usiamo un fallback "run sconosciuto" ma i layer possono comunque caricarsi se i file esistono.
+    runStr = null;
+    runDateUTC = null;
+    maxHour = 47; // default
+    setStatus("Meta assente: uso fallback ore 0..47");
+    return "MeteoHub / Agenzia ItaliaMeteo — ICON-2I open data";
+  }
+}
+
+async function getGrid(kind, hour) {
+  const m = cache[kind];
+  if (m.has(hour)) return m.get(hour);
+
+  const url =
+    kind === "temp" ? FILES.temp(hour) :
+    kind === "pres" ? FILES.pres(hour) :
+    kind === "rain" ? FILES.rain(hour) :
+    kind === "wind" ? FILES.wind(hour) : null;
+
+  if (!url) return null;
+
+  const json = await fetchJson(url);
+  m.set(hour, json);
+  return json;
+}
+
+/* =========================
+   Layers
+========================= */
+let scalarTemp = null;
+let scalarPres = null;
+let scalarRain = null;
+
+let wind = null;
+
+function rainHourlyFromAccum(rainNow, rainPrev) {
+  // rainNow.values may contain NaN at coast; handle nulls gracefully
+  if (!rainNow || !rainNow.values) return null;
+  if (!rainPrev || !rainPrev.values) return rainNow; // hour 0
+  const out = {
+    nx: rainNow.nx,
+    ny: rainNow.ny,
+    bbox: rainNow.bbox,
+    values: new Array(rainNow.values.length),
+  };
+  for (let i = 0; i < out.values.length; i++) {
+    const a = safeNumber(rainNow.values[i]);
+    const b = safeNumber(rainPrev.values[i]);
+    if (a === null && b === null) { out.values[i] = null; continue; }
+    if (a === null && b !== null) { out.values[i] = null; continue; }
+    if (a !== null && b === null) { out.values[i] = a; continue; }
+    const d = a - b;
+    out.values[i] = (Number.isFinite(d) ? Math.max(0, d) : null);
+  }
+  return out;
+}
+
+async function ensureLayers() {
+  scalarTemp = makeScalarCanvasLayer({
+    name: "temp",
+    getGrid: () => cache.temp.get(currentHour) || null,
+    valueToRgba: (v) => rampTempC(v),
+    valueLabel: (v) => `${v.toFixed(1)} °C`,
+  });
+
+  scalarPres = makeScalarCanvasLayer({
+    name: "pres",
+    getGrid: () => cache.pres.get(currentHour) || null,
+    valueToRgba: (v) => rampPresHpa(v),
+    valueLabel: (v) => `${v.toFixed(1)} hPa`,
+  });
+
+  scalarRain = makeScalarCanvasLayer({
+    name: "rain",
+    getGrid: () => cache.rainHourly?.get(currentHour) || null,
+    valueToRgba: (v) => rampRainMmH(v),
+    valueLabel: (v) => `${v.toFixed(2)} mm/h`,
+  });
+
+  // wind layer
+  wind = makeWindLayer({
+    getWindGrid: () => cache.wind.get(currentHour) || null,
+  });
+
+  // init rainHourly map
+  if (!cache.rainHourly) cache.rainHourly = new Map();
+}
+
+function clearAllOverlays() {
+  // remove scalar layers if present
+  if (scalarTemp?.layer && map.hasLayer(scalarTemp.layer)) map.removeLayer(scalarTemp.layer);
+  if (scalarPres?.layer && map.hasLayer(scalarPres.layer)) map.removeLayer(scalarPres.layer);
+  if (scalarRain?.layer && map.hasLayer(scalarRain.layer)) map.removeLayer(scalarRain.layer);
+
+  // remove wind
+  const w = wind?.ensureOnMap?.();
+  if (w && map.hasLayer(w)) map.removeLayer(w);
+}
+
+function syncOverlayVisibility() {
+  clearAllOverlays();
+
+  // Exclusive-ish: se selezioni vento, gli altri si spengono automaticamente per non fare casino
+  // (se vuoi sovrapporre in futuro lo facciamo, ma ora ti serve stabile)
+  const any = el.chkWind.checked || el.chkTemp.checked || el.chkRain.checked || el.chkPres.checked;
+  if (!any) return;
+
+  if (el.chkWind.checked) {
+    const wLayer = wind.ensureOnMap();
+    wLayer.addTo(map);
+    wind.setData(cache.wind.get(currentHour) || null);
+    return;
+  }
+
+  if (el.chkTemp.checked) scalarTemp.layer.addTo(map);
+  if (el.chkRain.checked) scalarRain.layer.addTo(map);
+  if (el.chkPres.checked) scalarPres.layer.addTo(map);
+}
+
+/* =========================
+   Click readout
+========================= */
+function updatePointReadout(latlng) {
+  const name = activeLayerName();
+  if (!name) {
+    el.lblPoint.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+    el.lblValue.textContent = "— (attiva un layer)";
+    return;
+  }
+
+  el.lblPoint.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+
+  if (name === "temp") {
+    const v = scalarTemp.getValueAtLatLng(latlng);
+    el.lblValue.textContent = v === null ? "—" : scalarTemp.valueLabel(v);
+  } else if (name === "pres") {
+    const v = scalarPres.getValueAtLatLng(latlng);
+    el.lblValue.textContent = v === null ? "—" : scalarPres.valueLabel(v);
+  } else if (name === "rain") {
+    const v = scalarRain.getValueAtLatLng(latlng);
+    el.lblValue.textContent = v === null ? "—" : scalarRain.valueLabel(v);
+  } else if (name === "wind") {
+    const ms = wind.getValueAtLatLng(latlng);
+    if (ms === null) {
+      el.lblValue.textContent = "—";
     } else {
-      applyOverla
+      const kmh = ms * 3.6;
+      el.lblValue.textContent = `${kmh.toFixed(1)} km/h`;
+    }
+  }
+}
+
+/* =========================
+   Time slider label
+========================= */
+function refreshTimeLabel() {
+  if (runDateUTC) {
+    const dt = new Date(runDateUTC.getTime() + currentHour * 3600 * 1000);
+    el.lblTime.textContent = `${formatDateRome(dt)}  (+${currentHour}h)`;
+    el.lblRun.textContent = runStr;
+  } else {
+    el.lblTime.textContent = `+${currentHour}h`;
+    el.lblRun.textContent = "—";
+  }
+}
+
+/* =========================
+   Loading pipeline
+========================= */
+async function loadHourData(hour) {
+  currentHour = hour;
+  el.sliderHour.value = String(hour);
+  refreshTimeLabel();
+
+  // load scalar grids
+  const [t, p, r, w] = await Promise.allSettled([
+    getGrid("temp", hour),
+    getGrid("pres", hour),
+    getGrid("rain", hour),
+    getGrid("wind", hour),
+  ]);
+
+  // store successful ones
+  if (t.status === "fulfilled") cache.temp.set(hour, t.value);
+  if (p.status === "fulfilled") cache.pres.set(hour, p.value);
+  if (r.status === "fulfilled") cache.rain.set(hour, r.value);
+  if (w.status === "fulfilled") cache.wind.set(hour, w.value);
+
+  // compute hourly rain (difference)
+  try {
+    const rainNow = cache.rain.get(hour) || null;
+    const rainPrev = hour > 0 ? (cache.rain.get(hour - 1) || await getGrid("rain", hour - 1)) : null;
+    const hourly = rainHourlyFromAccum(rainNow, rainPrev);
+    if (hourly) cache.rainHourly.set(hour, hourly);
+  } catch (e) {
+    // ignore
+  }
+
+  // update overlays
+  syncOverlayVisibility();
+}
+
+/* =========================
+   UI behaviors (exclusive toggles)
+========================= */
+function setExclusive(active) {
+  // active one true, others false
+  el.chkTemp.checked = (active === "temp");
+  el.chkRain.checked = (active === "rain");
+  el.chkPres.checked = (active === "pres");

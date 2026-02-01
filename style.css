@@ -1,47 +1,51 @@
 html, body {
   height: 100%;
   margin: 0;
+  background: #0b0f14;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
 #map {
-  height: 100%;
-  width: 100%;
+  position: fixed;
+  inset: 0;
 }
 
-.panel {
-  position: absolute;
+#panel {
+  position: fixed;
   top: 14px;
   left: 14px;
-  width: min(340px, calc(100vw - 28px));
-  background: rgba(22, 26, 33, 0.88);
-  color: #fff;
+  width: min(360px, calc(100vw - 28px));
+  background: rgba(25, 33, 44, 0.92);
+  color: #e7eef7;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.35);
   padding: 14px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-  backdrop-filter: blur(8px);
-  z-index: 1000;
+  z-index: 9999;
+  backdrop-filter: blur(10px);
 }
 
-.panel-title {
-  font-weight: 700;
+#panel .title {
   font-size: 18px;
+  font-weight: 750;
   margin-bottom: 10px;
 }
 
-.btn {
+#btnReload {
   width: 100%;
-  padding: 10px 12px;
   border: 0;
   border-radius: 10px;
-  background: rgba(60, 90, 160, 0.85);
-  color: #fff;
-  font-weight: 700;
+  padding: 10px 12px;
   cursor: pointer;
-  margin-bottom: 10px;
+  font-weight: 700;
+  background: #2d4370;
+  color: #eaf1ff;
+  margin-bottom: 12px;
 }
 
-.btn:active { transform: translateY(1px); }
+#btnReload:active {
+  transform: translateY(1px);
+}
 
 .row {
   display: flex;
@@ -51,42 +55,37 @@ html, body {
   user-select: none;
 }
 
-.section {
-  margin-top: 12px;
+.row input {
+  width: 18px;
+  height: 18px;
 }
 
-.small {
-  font-size: 12px;
+.sep {
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+  margin: 10px 0;
+}
+
+.meta {
+  font-size: 13px;
   line-height: 1.35;
+  opacity: 0.95;
 }
 
-.muted {
-  opacity: 0.8;
+.metaLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
 }
 
-.footer {
-  margin-top: 12px;
-}
-
-#error {
-  color: #ffb3b3;
-}
-
-.error {
-  color: #ffb3b3;
-  margin: 6px 0 10px 0;
-  font-size: 12px;
-}
-
-#timeSlider {
+#sliderHour {
   width: 100%;
-  margin-top: 6px;
+  margin: 8px 0 6px;
 }
 
-.leaflet-wind-canvas {
-  image-rendering: auto;
-}
-
-.leaflet-grid-canvas {
-  pointer-events: none;
+.hint {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.85;
 }

@@ -5,589 +5,64 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Sicilia Meteo — ICON-2I</title>
 
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-  <style>
-    html, body { height: 100%; margin: 0; background:#0b0f14; }
-    #map { height: 100%; width: 100%; background:#0b0f14; }
+  <!-- Windy-like particles: leaflet-velocity -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@1.7.0/dist/leaflet-velocity.min.css"/>
 
-    .panel{
-      position:absolute; z-index:1000; left:14px; top:14px;
-      width:min(360px, calc(100vw - 28px));
-      padding:14px 14px 12px; border-radius:14px;
-      background:rgba(18,24,32,.86); backdrop-filter: blur(10px);
-      color:#e9eef6; box-shadow:0 10px 30px rgba(0,0,0,.35);
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-      user-select:none;
-    }
-    .title{ font-size:18px; font-weight:700; margin-bottom:10px; }
-    .btn{
-      width:100%; background:#22314a; border:0; color:#e9eef6;
-      padding:10px 12px; border-radius:12px; font-weight:700; cursor:pointer;
-    }
-    .btn:active{ transform:translateY(1px); }
-    .row{ margin-top:10px; display:grid; gap:8px; }
-    label{ display:flex; align-items:center; gap:10px; font-size:14px; }
-    input[type="checkbox"]{ width:18px; height:18px; }
-
-    .meta{ margin-top:10px; font-size:12px; line-height:1.35; color:rgba(233,238,246,.85); }
-    .sliderWrap{ margin-top:10px; }
-    .sliderHead{ display:flex; justify-content:space-between; font-size:12px; opacity:.9; margin-bottom:6px; }
-    input[type="range"]{ width:100%; }
-
-    .error{ color:#ff7b7b; font-size:12px; margin-top:8px; white-space:pre-wrap; }
-    .ok{ color:#8effb5; }
-    .hint{ margin-top:8px; font-size:11px; color:rgba(233,238,246,.65); }
-
-    .leaflet-control-attribution{ display:none; }
-  </style>
-
-  <script>
-    function loadScript(src){
-      return new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = src;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error("Errore caricamento: " + src));
-        document.head.appendChild(s);
-      });
-    }
-    async function ensureLeaflet(){
-      try{
-        await loadScript("https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js");
-        return true;
-      }catch(e1){
-        try{
-          await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
-          return true;
-        }catch(e2){
-          return false;
-        }
-      }
-    }
-  </script>
+  <link rel="stylesheet" href="./styles.css?v=1" />
 </head>
-
 <body>
   <div id="map"></div>
 
-  <div class="panel">
+  <div id="panel">
     <div class="title">Sicilia — ICON-2I</div>
 
-    <button class="btn" id="reloadBtn">Ricarica dati</button>
+    <button id="btnReload">Ricarica dati</button>
 
-    <div class="row">
-      <label><input id="chkTemp" type="checkbox"> Temperatura 2m</label>
-      <label><input id="chkRain" type="checkbox"> Pioggia (oraria)</label>
-      <label><input id="chkPres" type="checkbox"> Pressione</label>
-      <label><input id="chkWind" type="checkbox"> Vento (particelle)</label>
-    </div>
+    <label class="row">
+      <input type="checkbox" id="chkTemp">
+      <span>Temperatura 2m</span>
+    </label>
 
-    <div class="sliderWrap">
-      <div class="sliderHead">
-        <span id="timeLabel">Ora previsione: —</span>
-        <span id="hourLabel">+0h</span>
-      </div>
-      <input id="hourSlider" type="range" min="0" max="0" step="1" value="0" />
-    </div>
+    <label class="row">
+      <input type="checkbox" id="chkRain">
+      <span>Pioggia (oraria)</span>
+    </label>
+
+    <label class="row">
+      <input type="checkbox" id="chkPres">
+      <span>Pressione</span>
+    </label>
+
+    <label class="row">
+      <input type="checkbox" id="chkWind">
+      <span>Vento (particelle)</span>
+    </label>
+
+    <div class="sep"></div>
 
     <div class="meta">
-      <div>Run: <span id="runLabel">—</span></div>
-      <div>Basemap: <span id="baseLabel">—</span></div>
-      <div>Status: <span id="statusLabel">—</span></div>
-      <div>Punto: <span id="ptLabel">—</span></div>
-      <div>Valore: <span id="valLabel">—</span></div>
-      <div>Fonte dati: <span id="srcLabel">—</span></div>
-    </div>
+      <div class="metaLine"><span>Ora previsione:</span> <b id="lblTime">—</b></div>
+      <input id="sliderHour" type="range" min="0" max="0" value="0" step="1"/>
 
-    <div id="errBox" class="error" style="display:none;"></div>
-    <div class="hint">Tip: tocca la mappa per leggere il valore nel punto (layer attivo).</div>
+      <div class="metaLine"><span>Run:</span> <span id="lblRun">—</span></div>
+      <div class="metaLine"><span>Status:</span> <span id="lblStatus">—</span></div>
+
+      <div class="sep"></div>
+
+      <div class="metaLine"><span>Punto:</span> <span id="lblPoint">—</span></div>
+      <div class="metaLine"><span>Valore:</span> <span id="lblValue">—</span></div>
+
+      <div class="hint">Tip: tocca la mappa per leggere il valore nel punto (in base al layer attivo).</div>
+    </div>
   </div>
 
-  <script>
-    // =========================
-    // CONFIG
-    // =========================
-    const FALLBACK_RUN = "2026013112";
-    const DATA_DIR = "./data";
-    const FILES = { temp:"temp_", rain:"rain_", pres:"pres_", wind:"wind_" };
-    const EXT = ".json";
+  <!-- Scripts -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-velocity@1.7.0/dist/leaflet-velocity.min.js"></script>
 
-    const DEFAULT_VIEW_BOUNDS = [
-      [36.35, 12.15],
-      [38.40, 15.85]
-    ];
-
-    // =========================
-    // UI
-    // =========================
-    const $ = (id) => document.getElementById(id);
-
-    function setStatusOk(msg){
-      $("statusLabel").innerHTML = `<span class="ok">${msg}</span>`;
-    }
-    function setStatus(msg){
-      $("statusLabel").textContent = msg;
-    }
-
-    function showError(msg){
-      const el = $("errBox");
-      el.style.display = "block";
-      el.textContent = msg;
-    }
-    function clearError(){
-      const el = $("errBox");
-      el.style.display = "none";
-      el.textContent = "";
-    }
-
-    window.addEventListener("error", (e) => {
-      showError("JS ERROR: " + (e.message || e.error || "sconosciuto"));
-    });
-    window.addEventListener("unhandledrejection", (e) => {
-      showError("PROMISE ERROR: " + (e.reason?.message || e.reason || "sconosciuto"));
-    });
-
-    // =========================
-    // FETCH (no-cache) + NaN fix
-    // =========================
-    async function fetchTextNoCache(url){
-      const u = url + (url.includes("?") ? "&" : "?") + "v=" + Date.now();
-      const res = await fetch(u, { cache:"no-store" });
-      if(!res.ok) throw new Error(`HTTP ${res.status} su ${url}`);
-      return await res.text();
-    }
-
-    function safeJsonParseWithNaN(text){
-      const cleaned = text
-        .replace(/\bNaN\b/g, "null")
-        .replace(/\bInfinity\b/g, "null")
-        .replace(/\b-Infinity\b/g, "null");
-      return JSON.parse(cleaned);
-    }
-
-    async function fetchJSON(url){
-      const text = await fetchTextNoCache(url);
-      return safeJsonParseWithNaN(text);
-    }
-
-    async function loadRunMeta(){
-      try{
-        const meta = await fetchJSON(`${DATA_DIR}/run.json`);
-        if(meta && (meta.run || meta.RUN || meta.date)){
-          return String(meta.run || meta.RUN || meta.date).trim();
-        }
-      } catch(e){
-        // fallback
-      }
-      return FALLBACK_RUN;
-    }
-
-    function parseRunToDate(runStr){
-      const y = Number(runStr.slice(0,4));
-      const m = Number(runStr.slice(4,6)) - 1;
-      const d = Number(runStr.slice(6,8));
-      const hh = Number(runStr.slice(8,10));
-      return new Date(Date.UTC(y,m,d,hh,0,0));
-    }
-
-    function fmtDateIT(dateUtc){
-      const local = new Date(dateUtc.getTime());
-      return local.toLocaleString("it-IT", {
-        year:"numeric", month:"2-digit", day:"2-digit",
-        hour:"2-digit", minute:"2-digit"
-      });
-    }
-
-    function pad3(n){ return String(n).padStart(3,"0"); }
-    function urlFor(prefix, hour){ return `${DATA_DIR}/${prefix}${pad3(hour)}${EXT}`; }
-
-    // Su GitHub Pages HEAD a volte è “strano” su alcuni browser/reti.
-    // Quindi qui NON uso HEAD per scoprire maxHour: uso un piccolo probing GET leggero.
-    async function detectMaxHour(){
-      // prova da 0..120, si ferma al primo 404
-      for(let h=0; h<=120; h++){
-        try{
-          await fetchTextNoCache(urlFor(FILES.temp, h));
-        }catch(e){
-          return Math.max(0, h-1);
-        }
-      }
-      return 120;
-    }
-
-    // =========================
-    // UTIL
-    // =========================
-    function clamp(x,a,b){ return Math.max(a, Math.min(b, x)); }
-    function lerpColor(a,b,t){
-      return [
-        Math.round(a[0] + (b[0]-a[0])*t),
-        Math.round(a[1] + (b[1]-a[1])*t),
-        Math.round(a[2] + (b[2]-a[2])*t),
-      ];
-    }
-
-    function scalarColor(v, vmin, vmax, scheme){
-      if(v === null || v === undefined || Number.isNaN(v)) return null;
-      const t = clamp((v - vmin) / (vmax - vmin), 0, 1);
-
-      function pick(stops){
-        for(let i=0;i<stops.length-1;i++){
-          if(t>=stops[i].t && t<=stops[i+1].t){
-            const tt = (t-stops[i].t)/(stops[i+1].t-stops[i].t);
-            const c = lerpColor(stops[i].c, stops[i+1].c, tt);
-            return `rgb(${c[0]},${c[1]},${c[2]})`;
-          }
-        }
-        return `rgb(${stops.at(-1).c.join(",")})`;
-      }
-
-      if(scheme === "temp"){
-        return pick([
-          {t:0.0, c:[40,80,200]},
-          {t:0.45,c:[60,200,140]},
-          {t:0.70,c:[240,220,80]},
-          {t:1.0, c:[220,60,50]}
-        ]);
-      }
-      if(scheme === "pres"){
-        return pick([
-          {t:0.0, c:[120,60,180]},
-          {t:0.40,c:[60,110,220]},
-          {t:0.75,c:[90,220,240]},
-          {t:1.0, c:[245,245,245]}
-        ]);
-      }
-      if(scheme === "rain"){
-        return pick([
-          {t:0.0, c:[0,0,0]},
-          {t:0.25,c:[40,120,240]},
-          {t:0.55,c:[70,220,160]},
-          {t:0.75,c:[240,220,90]},
-          {t:1.0, c:[220,70,60]}
-        ]);
-      }
-      return "rgb(255,255,255)";
-    }
-
-    function windColor(speedKmh){
-      if(speedKmh === null || speedKmh === undefined || Number.isNaN(speedKmh)) return "rgba(0,0,0,0)";
-      const t = clamp(speedKmh / 80, 0, 1);
-      const stops = [
-        {t:0.0, c:[40,110,240]},
-        {t:0.45,c:[70,220,160]},
-        {t:0.70,c:[240,220,90]},
-        {t:0.88,c:[240,130,60]},
-        {t:1.0, c:[150,0,0]}
-      ];
-      for(let i=0;i<stops.length-1;i++){
-        if(t>=stops[i].t && t<=stops[i+1].t){
-          const tt = (t-stops[i].t)/(stops[i+1].t-stops[i].t);
-          const c = lerpColor(stops[i].c, stops[i+1].c, tt);
-          return `rgb(${c[0]},${c[1]},${c[2]})`;
-        }
-      }
-      return "rgb(150,0,0)";
-    }
-
-    // =========================
-    // GRID LAYER
-    // =========================
-    class GridCanvasLayer extends L.Layer {
-      constructor(opts){
-        super();
-        this._opts = opts;
-        this._canvas = null;
-        this._data = null;
-        this._img = null;
-      }
-      onAdd(map){
-        this._map = map;
-        this._canvas = L.DomUtil.create("canvas", "leaflet-layer");
-        this._canvas.style.position = "absolute";
-        this._canvas.style.pointerEvents = "none";
-        map.getPanes().overlayPane.appendChild(this._canvas);
-        map.on("move zoom resize", this._redraw, this);
-        this._redraw();
-      }
-      onRemove(map){
-        map.off("move zoom resize", this._redraw, this);
-        if(this._canvas && this._canvas.parentNode) this._canvas.parentNode.removeChild(this._canvas);
-        this._canvas = null; this._map = null;
-      }
-      setData(grid){ this._data = grid; this._img = null; this._redraw(); }
-      clear(){ this._data = null; this._img = null; this._redraw(); }
-
-      _makeImage(){
-        if(!this._data) return null;
-        const nx = this._data.nx, ny = this._data.ny;
-        const values = this._data.values;
-        const scheme = this._opts.scheme;
-        const vmin = this._opts.vmin;
-        const vmax = this._opts.vmax;
-        const alpha = this._opts.alpha ?? 0.75;
-
-        const c = document.createElement("canvas");
-        c.width = nx; c.height = ny;
-        const ctx = c.getContext("2d");
-        const img = ctx.createImageData(nx, ny);
-
-        for(let j=0;j<ny;j++){
-          for(let i=0;i<nx;i++){
-            const idx = j*nx + i;
-            const v = values[idx];
-            const off = idx*4;
-
-            if(v == null){
-              img.data[off+3] = 0;
-              continue;
-            }
-            const col = scalarColor(v, vmin, vmax, scheme);
-            if(!col){ img.data[off+3] = 0; continue; }
-
-            const m = col.match(/rgb\((\d+),(\d+),(\d+)\)/);
-            img.data[off+0] = Number(m[1]);
-            img.data[off+1] = Number(m[2]);
-            img.data[off+2] = Number(m[3]);
-            img.data[off+3] = Math.round(alpha*255);
-          }
-        }
-        ctx.putImageData(img, 0, 0);
-        return c;
-      }
-
-      _redraw(){
-        if(!this._map || !this._canvas) return;
-        const size = this._map.getSize();
-        this._canvas.width = size.x;
-        this._canvas.height = size.y;
-
-        const ctx = this._canvas.getContext("2d");
-        ctx.clearRect(0,0,size.x,size.y);
-
-        if(!this._data) return;
-
-        const bbox = this._data.bbox; // [lonmin, latmin, lonmax, latmax]
-        const sw = L.latLng(bbox[1], bbox[0]);
-        const ne = L.latLng(bbox[3], bbox[2]);
-        const p1 = this._map.latLngToContainerPoint(ne);
-        const p0 = this._map.latLngToContainerPoint(sw);
-
-        const x = p0.x, y = p1.y;
-        const w = p1.x - p0.x;
-        const h = p0.y - p1.y;
-
-        if(!this._img) this._img = this._makeImage();
-        if(!this._img) return;
-
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(this._img, x, y, w, h);
-      }
-    }
-
-    // =========================
-    // WIND LAYER
-    // =========================
-    class WindParticlesLayer extends L.Layer {
-      constructor(opts){
-        super();
-        this._opts = opts;
-        this._canvas = null;
-        this._data = null;
-        this._anim = null;
-        this._particles = [];
-      }
-      onAdd(map){
-        this._map = map;
-        this._canvas = L.DomUtil.create("canvas", "leaflet-layer");
-        this._canvas.style.position = "absolute";
-        this._canvas.style.pointerEvents = "none";
-        map.getPanes().overlayPane.appendChild(this._canvas);
-        map.on("move zoom resize", this._reset, this);
-        this._reset();
-        this._start();
-      }
-      onRemove(map){
-        map.off("move zoom resize", this._reset, this);
-        this._stop();
-        if(this._canvas && this._canvas.parentNode) this._canvas.parentNode.removeChild(this._canvas);
-        this._canvas = null; this._map = null; this._particles = [];
-      }
-      setData(wind){ this._data = wind; this._seed(true); }
-      clear(){ this._data = null; this._particles = []; this._clear(); }
-
-      _reset(){
-        if(!this._map || !this._canvas) return;
-        const size = this._map.getSize();
-        this._canvas.width = size.x;
-        this._canvas.height = size.y;
-        this._seed(true);
-      }
-      _clear(){
-        if(!this._canvas) return;
-        const ctx = this._canvas.getContext("2d");
-        ctx.clearRect(0,0,this._canvas.width,this._canvas.height);
-      }
-      _seed(force){
-        if(!this._canvas) return;
-        const count = this._opts.count ?? 2200;
-        if(!force && this._particles.length === count) return;
-        this._particles = [];
-        for(let i=0;i<count;i++){
-          this._particles.push({ x:Math.random()*this._canvas.width, y:Math.random()*this._canvas.height, age:Math.random()*60 });
-        }
-      }
-      _start(){
-        if(this._anim) return;
-        const tick = () => { this._step(); this._anim = requestAnimationFrame(tick); };
-        this._anim = requestAnimationFrame(tick);
-      }
-      _stop(){
-        if(this._anim){ cancelAnimationFrame(this._anim); this._anim = null; }
-      }
-
-      _sample(x,y){
-        if(!this._data || !this._map) return null;
-        const ll = this._map.containerPointToLatLng([x,y]);
-        const lon = ll.lng, lat = ll.lat;
-        const bbox = this._data.bbox;
-        const lonmin=bbox[0], latmin=bbox[1], lonmax=bbox[2], latmax=bbox[3];
-        if(lon<lonmin || lon>lonmax || lat<latmin || lat>latmax) return null;
-
-        const nx=this._data.nx, ny=this._data.ny;
-        const fx=(lon-lonmin)/(lonmax-lonmin)*(nx-1);
-        const fy=(latmax-lat)/(latmax-latmin)*(ny-1);
-        const i0=Math.floor(fx), j0=Math.floor(fy);
-        const i1=clamp(i0+1,0,nx-1), j1=clamp(j0+1,0,ny-1);
-        const tx=fx-i0, ty=fy-j0;
-
-        const idx00=j0*nx+i0, idx10=j0*nx+i1, idx01=j1*nx+i0, idx11=j1*nx+i1;
-        const u00=this._data.u[idx00], u10=this._data.u[idx10], u01=this._data.u[idx01], u11=this._data.u[idx11];
-        const v00=this._data.v[idx00], v10=this._data.v[idx10], v01=this._data.v[idx01], v11=this._data.v[idx11];
-        if(u00==null||u10==null||u01==null||u11==null||v00==null||v10==null||v01==null||v11==null) return null;
-
-        const u0=u00*(1-tx)+u10*tx, u1=u01*(1-tx)+u11*tx;
-        const v0=v00*(1-tx)+v10*tx, v1=v01*(1-tx)+v11*tx;
-        const u=u0*(1-ty)+u1*ty;
-        const v=v0*(1-ty)+v1*ty;
-        return {u,v};
-      }
-
-      _step(){
-        if(!this._canvas || !this._map) return;
-        const ctx = this._canvas.getContext("2d");
-        const w = this._canvas.width, h = this._canvas.height;
-
-        // fade
-        ctx.globalCompositeOperation = "source-over";
-        ctx.fillStyle = "rgba(11,15,20,0.08)";
-        ctx.fillRect(0,0,w,h);
-
-        if(!this._data) return;
-
-        const speedScale = this._opts.speedScale ?? 0.020;
-        const maxAge = this._opts.maxAge ?? 70;
-        const lineWidth = this._opts.lineWidth ?? 1.15;
-
-        ctx.lineWidth = lineWidth;
-        ctx.globalCompositeOperation = "lighter";
-
-        for(const p of this._particles){
-          if(p.age++ > maxAge){
-            p.x = Math.random()*w; p.y = Math.random()*h; p.age = 0;
-            continue;
-          }
-
-          const wind = this._sample(p.x, p.y);
-          if(!wind){
-            p.x = Math.random()*w; p.y = Math.random()*h; p.age = 0;
-            continue;
-          }
-
-          const spd_ms = Math.sqrt(wind.u*wind.u + wind.v*wind.v);
-          const spd_kmh = spd_ms * 3.6;
-          ctx.strokeStyle = windColor(spd_kmh);
-
-          const x0=p.x, y0=p.y;
-          const dx = wind.u * speedScale * 60;
-          const dy = -wind.v * speedScale * 60;
-
-          const x1=x0+dx, y1=y0+dy;
-
-          ctx.beginPath();
-          ctx.moveTo(x0,y0);
-          ctx.lineTo(x1,y1);
-          ctx.stroke();
-
-          p.x=x1; p.y=y1;
-
-          if(p.x<0||p.x>w||p.y<0||p.y>h){
-            p.x=Math.random()*w; p.y=Math.random()*h; p.age=0;
-          }
-        }
-      }
-    }
-
-    // =========================
-    // Sampling click
-    // =========================
-    function sampleScalarAtLatLng(grid, lat, lon){
-      if(!grid) return null;
-      const bbox = grid.bbox;
-      const lonmin=bbox[0], latmin=bbox[1], lonmax=bbox[2], latmax=bbox[3];
-      if(lon<lonmin || lon>lonmax || lat<latmin || lat>latmax) return null;
-
-      const nx=grid.nx, ny=grid.ny;
-      const fx=(lon-lonmin)/(lonmax-lonmin)*(nx-1);
-      const fy=(latmax-lat)/(latmax-latmin)*(ny-1);
-
-      const i0=Math.floor(fx), j0=Math.floor(fy);
-      const i1=clamp(i0+1,0,nx-1), j1=clamp(j0+1,0,ny-1);
-      const tx=fx-i0, ty=fy-j0;
-
-      const idx00=j0*nx+i0, idx10=j0*nx+i1, idx01=j1*nx+i0, idx11=j1*nx+i1;
-      const v00=grid.values[idx00], v10=grid.values[idx10], v01=grid.values[idx01], v11=grid.values[idx11];
-      if(v00==null||v10==null||v01==null||v11==null) return null;
-
-      const v0=v00*(1-tx)+v10*tx;
-      const v1=v01*(1-tx)+v11*tx;
-      return v0*(1-ty)+v1*ty;
-    }
-
-    function sampleWindAtLatLng(wind, lat, lon){
-      if(!wind) return null;
-      const bbox=wind.bbox;
-      const lonmin=bbox[0], latmin=bbox[1], lonmax=bbox[2], latmax=bbox[3];
-      if(lon<lonmin || lon>lonmax || lat<latmin || lat>latmax) return null;
-
-      const nx=wind.nx, ny=wind.ny;
-      const fx=(lon-lonmin)/(lonmax-lonmin)*(nx-1);
-      const fy=(latmax-lat)/(latmax-latmin)*(ny-1);
-
-      const i0=Math.floor(fx), j0=Math.floor(fy);
-      const i1=clamp(i0+1,0,nx-1), j1=clamp(j0+1,0,ny-1);
-      const tx=fx-i0, ty=fy-j0;
-
-      const idx00=j0*nx+i0, idx10=j0*nx+i1, idx01=j1*nx+i0, idx11=j1*nx+i1;
-      const u00=wind.u[idx00], u10=wind.u[idx10], u01=wind.u[idx01], u11=wind.u[idx11];
-      const v00=wind.v[idx00], v10=wind.v[idx10], v01=wind.v[idx01], v11=wind.v[idx11];
-      if(u00==null||u10==null||u01==null||u11==null||v00==null||v10==null||v01==null||v11==null) return null;
-
-      const u0=u00*(1-tx)+u10*tx, u1=u01*(1-tx)+u11*tx;
-      const v0=v00*(1-tx)+v10*tx, v1=v01*(1-tx)+v11*tx;
-      const u=u0*(1-ty)+u1*ty;
-      const v=v0*(1-ty)+v1*ty;
-      const spd_ms=Math.sqrt(u*u+v*v);
-      return { spd_kmh: spd_ms*3.6 };
-    }
-
-    // =========================
-    // MAIN
-    // =========================
-    (async function main(){
-      clearError();
-      setStatus("Carico Leaflet…");
-
-      const okLeaflet = await ensureLeaflet();
-      if(!okLeaflet || typeof window.L === "undefin
+  <script src="./app.js?v=1"></script>
+</body>
+</html>

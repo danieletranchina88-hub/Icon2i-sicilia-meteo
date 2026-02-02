@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Sicilia MeteoHub - FIX</title>
+    <title>Sicilia MeteoHub - FINAL</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
@@ -14,11 +14,10 @@
         body { margin: 0; background: #1a1a1a; font-family: 'Segoe UI', sans-serif; color: white; overflow: hidden; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; background: #1a1a1a; }
         
-        /* DIAGNOSTICA VISIBILE */
         #status-box {
             position: absolute; bottom: 95px; left: 20px; 
-            color: #aaa; font-size: 11px; font-family: monospace;
-            background: rgba(0,0,0,0.5); padding: 2px 5px; border-radius: 4px;
+            color: #888; font-size: 10px; font-family: monospace;
+            background: rgba(0,0,0,0.6); padding: 2px 5px; border-radius: 4px;
             pointer-events: none; z-index: 5000;
         }
 
@@ -26,11 +25,10 @@
             position: absolute; top: 15px; right: 15px; z-index: 1000;
             background: rgba(30,30,30,0.95); padding: 8px; border-radius: 12px;
             display: flex; flex-direction: column; gap: 8px; border: 1px solid #444;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
         .layer-btn {
             background: transparent; border: none; color: #ccc; padding: 12px 20px;
-            font-size: 14px; font-weight: 600; cursor: pointer; text-align: right; border-radius: 8px;
+            font-size: 14px; font-weight: 600; cursor: pointer; text-align: right; border-radius: 8px; transition: all 0.2s;
         }
         .layer-btn.active { background: #007bff; color: white; box-shadow: 0 0 10px rgba(0,123,255,0.4); }
 
@@ -49,6 +47,7 @@
             z-index: 5000; display: none; font-weight: bold; font-size: 1.1em;
             border: 1px solid #555;
         }
+        
         #picker-box { position: absolute; top: 20px; left: 20px; z-index: 1000; pointer-events: none; }
         #pk-val { font-size: 3em; font-weight: 800; text-shadow: 0 0 5px black; }
         #pk-unit { color: #ccc; font-size: 1.2em; }
@@ -56,7 +55,7 @@
 </head>
 <body>
 
-<div id="loader">Avvio...</div>
+<div id="loader">Caricamento...</div>
 <div id="status-box">Init...</div>
 
 <div id="layer-menu">
@@ -80,7 +79,7 @@
 
 <script>
     function status(msg) { document.getElementById('status-box').innerText = msg; }
-    window.onerror = function(msg) { status("ERR: " + msg); return false; };
+    window.onerror = function(msg) { status("Error: " + msg); return false; };
 
     var map, velocityLayer, heatCanvas;
     var currentData = null;
@@ -88,14 +87,14 @@
     var activeLayer = 'wind';
     var isPlaying = false;
 
-    // --- PALETTE ---
+    // --- PALETTE COLORI ---
     const PALETTES = {
         temp: [
             {val:-10, c:[255,255,255, 0.6]}, {val:0, c:[200,200,255, 0.6]},
             {val:10, c:[0,200,100, 0.6]}, {val:20, c:[255,255,0, 0.6]},
             {val:30, c:[255,140,0, 0.6]}, {val:40, c:[200,0,0, 0.6]}
         ],
-        rain: [ 
+        rain: [ // Azzurro -> Viola (Molto sensibile)
             {val:0, c:[0,0,0,0]},
             {val:0.05, c:[0,200,255, 0.6]},   
             {val:2, c:[0,0,255, 0.7]},       
@@ -130,21 +129,25 @@
     }
 
     window.addEventListener('load', function() {
+        // Mappa base
         map = L.map('map', { zoomControl: false }).setView([37.5, 14.2], 8);
 
-        // LAYERS
+        // 1. Sfondo Scuro (NO NOMI) - Livello più basso
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
+        // 2. Livello Griglia Colori
         map.createPane('gridPane'); map.getPane('gridPane').style.zIndex = 300; 
-        
+
+        // 3. Livello Nomi Città (SOPRA I COLORI)
         map.createPane('labelsPane'); map.getPane('labelsPane').style.zIndex = 500; 
         map.getPane('labelsPane').style.pointerEvents = 'none';
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { pane: 'labelsPane' }).addTo(map);
 
+        // 4. Livello Particelle (SOPRA A TUTTO)
         map.createPane('velocityPane'); map.getPane('velocityPane').style.zIndex = 600; 
         map.getPane('velocityPane').style.pointerEvents = 'none';
 
-        // HEATMAP
+        // Definizione Griglia
         L.FullHeatmap = L.Layer.extend({
             onAdd: function(m) {
                 this._c = L.DomUtil.create('canvas', 'leaflet-layer');
@@ -216,7 +219,7 @@
             document.getElementById('time-slider').max = catalog.length - 1;
             document.getElementById('time-slider').addEventListener('input', (e) => loadStep(parseInt(e.target.value)));
             loadStep(0);
-        } catch(e) { status("Err Catalog: " + e.message); }
+        } catch(e) { status("Attesa dati (404)..."); }
     }
 
     async function loadStep(index) {
@@ -225,31 +228,9 @@
         document.getElementById('loader').style.display = 'block';
         try {
             currentData = await fetchWithRetry('data_weather/' + catalog[index].file + '?nocache=' + Date.now());
-            
-            // --- AUTO-FIX DEI DATI MANCANTI (Il trucco magico) ---
-            // Se il Python non ha calcolato lo2/la2/scanMode, lo facciamo noi qui
-            // Così funziona ANCHE con i dati vecchi.
-            let h = currentData.meta;
-            if (h.lo2 === undefined || h.la2 === undefined) {
-                h.lo2 = h.lo1 + (h.dx * (h.nx - 1));
-                h.la2 = h.la1 - (h.dy * (h.ny - 1));
-                h.scanMode = 0;
-                
-                // Applichiamo la patch agli header di U e V
-                currentData.wind_u.header.lo2 = h.lo2;
-                currentData.wind_u.header.la2 = h.la2;
-                currentData.wind_u.header.scanMode = 0;
-                
-                currentData.wind_v.header.lo2 = h.lo2;
-                currentData.wind_v.header.la2 = h.la2;
-                currentData.wind_v.header.scanMode = 0;
-                status("Data Patched (Old Format)");
-            } else {
-                status("Data OK (New Format)");
-            }
-
+            status("Dati OK");
             updateMap();
-        } catch(e) { status("Err Data: " + e.message); }
+        } catch(e) { status("Errore Dati"); }
         document.getElementById('loader').style.display = 'none';
     }
 
@@ -273,7 +254,7 @@
                     frameRate: 20
                 });
                 velocityLayer.addTo(map);
-            } catch(e) { status("Vel Err: " + e.message); }
+            } catch(e) { status("Vel Err"); }
         }
     }
 
@@ -298,7 +279,6 @@
         }, 800);
     }
 
-    // SAFE TOUCH
     window.addEventListener('load', function(){
         if(!map) return;
         map.on('mousemove', function(e) {
@@ -319,7 +299,7 @@
                     else if (activeLayer === 'rain' && currentData.rain) val = currentData.rain[idx].toFixed(1);
                     document.getElementById('pk-val').innerText = val;
                 }
-            } catch(e) { }
+            } catch(e) {}
         });
     });
 </script>

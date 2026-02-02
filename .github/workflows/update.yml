@@ -26,8 +26,14 @@ jobs:
         pip install requests xarray numpy cfgrib
 
     - name: Run Data Processor
-      # ECCO LA MODIFICA: Ora punta al TUO file corretto
+      # Corretto per puntare al tuo file esatto
       run: python scripts/update_data.py
+
+    - name: CLEANUP RAW FILES (Cruciale!)
+      # Questo comando cancella il file gigante da 700MB PRIMA di salvare
+      run: |
+        rm -f temp.grib2
+        rm -f *.idx
 
     - name: Commit and Push
       run: |

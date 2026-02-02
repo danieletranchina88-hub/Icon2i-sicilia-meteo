@@ -7,6 +7,7 @@ import sys
 import shutil
 from datetime import datetime, timedelta
 
+# --- CONFIGURAZIONE ---
 DATASET_ID = "ICON_2I_SURFACE_PRESSURE_LEVELS"
 API_LIST_URL = f"https://meteohub.agenziaitaliameteo.it/api/datasets/{DATASET_ID}/opendata"
 API_DOWNLOAD_URL = "https://meteohub.agenziaitaliameteo.it/api/opendata"
@@ -61,15 +62,25 @@ def process_data():
             continue
 
         try:
+            # VENTO
             ds_wind = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'heightAboveGround', 'level': 10}})
+            
+            # TEMP
             try: ds_temp = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'heightAboveGround', 'level': 2}})
             except: ds_temp = None
             
+            # PIOGGIA
             ds_rain = None
             try: ds_rain = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'accum'}})
             except:
                 try: ds_rain = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface'}})
                 except: pass
+
+            # PRESSIONE (Mean Sea Level)
+            ds_press = None
+            try: ds_press = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}})
+            except: pass
+
         except: continue
 
         steps = range(ds_wind.sizes.get('step', 1))
@@ -101,6 +112,7 @@ def process_data():
                     lo2 = lo1 + (nx - 1) * dx
                     la2 = la1 - (ny - 1) * dy
 
+                    # Dati Extra
                     temp = np.zeros_like(u)
                     if ds_temp:
                         d_t = ds_temp.isel(step=i) if 'step' in ds_temp.dims else ds_temp
@@ -117,6 +129,15 @@ def process_data():
                         r_key = next((k for k in ['tp', 'tot_prec', 'apcp'] if k in cut_r), None)
                         if r_key: rain = np.nan_to_num(cut_r[r_key].values)
 
+                    # PRESSIONE (Conversione Pa -> hPa)
+                    press = np.zeros_like(u)
+                    if ds_press:
+                        d_p = ds_press.isel(step=i) if 'step' in ds_press.dims else ds_press
+                        d_p = d_p.sortby('latitude', ascending=False).sortby('longitude', ascending=True)
+                        cut_p = d_p.where(mask, drop=True)
+                        p_key = next((k for k in ['prmsl', 'msl'] if k in cut_p), None)
+                        if p_key: press = np.nan_to_num(cut_p[p_key].values) / 100.0
+
                     valid_dt = run_dt + timedelta(hours=step_hours)
                     iso_date = valid_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -130,7 +151,8 @@ def process_data():
                         "wind_u": { "header": {**header_common, "parameterCategory": 2, "parameterNumber": 2}, "data": np.round(u, 1).flatten().tolist() },
                         "wind_v": { "header": {**header_common, "parameterCategory": 2, "parameterNumber": 3}, "data": np.round(v, 1).flatten().tolist() },
                         "temp": np.round(temp, 1).flatten().tolist(),
-                        "rain": np.round(rain, 2).flatten().tolist()
+                        "rain": np.round(rain, 2).flatten().tolist(),
+                        "press": np.round(press, 1).flatten().tolist() # NUOVO
                     }
 
                     out_name = f"step_{step_hours}.json"
@@ -141,7 +163,6 @@ def process_data():
             except: continue
         print(" -> OK")
 
-    # Pulizia file gigante (sicurezza extra)
     if os.path.exists(TEMP_FILE): os.remove(TEMP_FILE)
 
     if catalog:
@@ -154,4 +175,4 @@ def process_data():
 
 if __name__ == "__main__":
     process_data()
-    
+                    

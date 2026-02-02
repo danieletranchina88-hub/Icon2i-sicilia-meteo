@@ -100,7 +100,7 @@ def process_data():
                     dx = float(abs(lon[1] - lon[0]))
                     dy = float(abs(lat[0] - lat[1]))
                     
-                    # --- GEOMETRIA FONDAMENTALE ---
+                    # GEOMETRIA NECESSARIA PER EVITARE SCHERMO NERO
                     lo2 = lo1 + (nx - 1) * dx
                     la2 = la1 - (ny - 1) * dy
 

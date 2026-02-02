@@ -4,6 +4,7 @@
     <title>Sicilia MeteoHub</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@1.8.0/dist/leaflet-velocity.css" />
@@ -18,7 +19,10 @@
             background: rgba(30,30,30,0.95); padding: 8px; border-radius: 12px;
             display: flex; flex-direction: column; gap: 8px; border: 1px solid #444;
         }
-        .layer-btn { background: transparent; border: none; color: #ccc; padding: 12px 20px; font-size: 14px; font-weight: 600; cursor: pointer; text-align: right; border-radius: 8px; }
+        .layer-btn {
+            background: transparent; border: none; color: #ccc; padding: 12px 20px;
+            font-size: 14px; font-weight: 600; cursor: pointer; text-align: right; border-radius: 8px;
+        }
         .layer-btn.active { background: #007bff; color: white; box-shadow: 0 0 10px rgba(0,123,255,0.4); }
 
         #bottom-bar {
@@ -33,16 +37,24 @@
         #loader {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             background: rgba(0,0,0,0.85); padding: 20px 40px; border-radius: 30px; 
-            z-index: 5000; display: none; font-weight: bold; font-size: 1.1em; border: 1px solid #555;
+            z-index: 5000; display: none; font-weight: bold; font-size: 1.1em;
+            border: 1px solid #555;
         }
         #picker-box { position: absolute; top: 20px; left: 20px; z-index: 1000; pointer-events: none; }
         #pk-val { font-size: 3em; font-weight: 800; text-shadow: 0 0 5px black; }
-        #pk-unit { color: #ccc; font-size: 1.2em; }
+        #pk-unit { color: #ccc; font-size: 1.2em; font-weight: bold; margin-left: 5px; }
+        #status-box {
+            position: absolute; bottom: 95px; left: 20px; 
+            color: #888; font-size: 10px; font-family: monospace;
+            background: rgba(0,0,0,0.6); padding: 2px 5px; border-radius: 4px;
+            pointer-events: none; z-index: 5000; display: none; /* Nascosto se tutto ok */
+        }
     </style>
 </head>
 <body>
 
 <div id="loader">Caricamento...</div>
+<div id="status-box"></div>
 
 <div id="layer-menu">
     <button class="layer-btn active" onclick="setLayer('wind')">VENTO 💨</button>
@@ -51,8 +63,7 @@
 </div>
 
 <div id="picker-box">
-    <div id="pk-val">--</div>
-    <div id="pk-unit">km/h</div>
+    <span id="pk-val">--</span><span id="pk-unit">km/h</span>
 </div>
 
 <div id="map"></div>
@@ -64,26 +75,53 @@
 </div>
 
 <script>
+    function status(msg) { 
+        let el = document.getElementById('status-box');
+        el.innerText = msg; el.style.display = 'block';
+    }
+    window.onerror = function(msg) { status("Err: " + msg); return false; };
+
     var map, velocityLayer, heatCanvas;
     var currentData = null;
     var catalog = [];
     var activeLayer = 'wind';
     var isPlaying = false;
 
+    // --- PALETTE COLORI ---
     const PALETTES = {
-        temp: [ {val:-10, c:[255,255,255,0.6]}, {val:0, c:[200,200,255,0.6]}, {val:10, c:[0,200,100,0.6]}, {val:20, c:[255,255,0,0.6]}, {val:30, c:[255,140,0,0.6]}, {val:40, c:[200,0,0,0.6]} ],
-        rain: [ {val:0, c:[0,0,0,0]}, {val:0.05, c:[0,200,255,0.6]}, {val:2, c:[0,0,255,0.7]}, {val:10, c:[150,0,200,0.8]} ],
-        wind: [ {val:0, c:[0,0,0,0]}, {val:5, c:[0,100,200,0.5]}, {val:20, c:[0,200,0,0.5]}, {val:40, c:[200,200,0,0.6]}, {val:60, c:[255,0,0,0.6]} ]
+        temp: [
+            {val:-10, c:[255,255,255, 0.6]}, {val:0, c:[200,200,255, 0.6]},
+            {val:10, c:[0,200,100, 0.6]}, {val:20, c:[255,255,0, 0.6]},
+            {val:30, c:[255,140,0, 0.6]}, {val:40, c:[200,0,0, 0.6]}
+        ],
+        rain: [ 
+            {val:0, c:[0,0,0,0]},
+            {val:0.05, c:[0,200,255, 0.6]},   
+            {val:2, c:[0,0,255, 0.7]},       
+            {val:10, c:[150,0,200, 0.8]}     
+        ],
+        wind: [
+            {val:0, c:[0,0,0,0]}, {val:5, c:[0,100,200, 0.5]},
+            {val:20, c:[0,200,0, 0.5]}, {val:40, c:[200,200,0, 0.6]},
+            {val:60, c:[255,0,0, 0.6]}
+        ]
     };
 
     function getColor(val, type) {
         let stops = PALETTES[type];
-        if((type==='rain' && val < 0.05) || (type==='wind' && val < 1)) return [0,0,0,0];
+        if(type==='rain' && val < 0.05) return [0,0,0,0];
+        if(type==='wind' && val < 1) return [0,0,0,0];
+
         for(let i=0; i<stops.length-1; i++) {
             if(val>=stops[i].val && val<=stops[i+1].val) {
                 let t = (val - stops[i].val) / (stops[i+1].val - stops[i].val);
                 let c1=stops[i].c, c2=stops[i+1].c;
-                return [ Math.round(c1[0]+(c2[0]-c1[0])*t), Math.round(c1[1]+(c2[1]-c1[1])*t), Math.round(c1[2]+(c2[2]-c1[2])*t), c1[3]+(c2[3]-c1[3])*t ];
+                return [
+                    Math.round(c1[0]+(c2[0]-c1[0])*t), 
+                    Math.round(c1[1]+(c2[1]-c1[1])*t), 
+                    Math.round(c1[2]+(c2[2]-c1[2])*t), 
+                    c1[3] + (c2[3] - c1[3]) * t
+                ];
             }
         } 
         let last = stops[stops.length-1];
@@ -92,8 +130,9 @@
 
     window.addEventListener('load', function() {
         map = L.map('map', { zoomControl: false }).setView([37.5, 14.2], 8);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
+        // Layers
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
         map.createPane('gridPane'); map.getPane('gridPane').style.zIndex = 300; 
         map.createPane('labelsPane'); map.getPane('labelsPane').style.zIndex = 500; map.getPane('labelsPane').style.pointerEvents = 'none';
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { pane: 'labelsPane' }).addTo(map);
@@ -163,7 +202,7 @@
             document.getElementById('time-slider').max = catalog.length - 1;
             document.getElementById('time-slider').addEventListener('input', (e) => loadStep(parseInt(e.target.value)));
             loadStep(0);
-        } catch(e) { console.error(e); }
+        } catch(e) { status("Caricamento..."); }
     }
 
     async function loadStep(index) {
@@ -173,7 +212,7 @@
         try {
             currentData = await fetchWithRetry('data_weather/' + catalog[index].file + '?nocache=' + Date.now());
             updateMap();
-        } catch(e) { console.error(e); }
+        } catch(e) { status("Err Data"); }
         document.getElementById('loader').style.display = 'none';
     }
 
@@ -197,18 +236,28 @@
                     frameRate: 20
                 });
                 velocityLayer.addTo(map);
-            } catch(e) { console.error(e); }
+            } catch(e) { status("Vel Err"); }
         }
     }
 
+    // --- FUNZIONE SWITCH LAYER (CORRETTA PER UI) ---
     window.setLayer = function(n) {
         activeLayer = n;
+        
+        // 1. Aggiorna Pulsanti
         document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
         event.target.classList.add('active');
-        let lbl=document.getElementById('pk-lbl'), unit=document.getElementById('pk-unit');
-        if(n==='wind'){lbl.innerText="VENTO";unit.innerText="km/h";}
-        if(n==='temp'){lbl.innerText="TEMP";unit.innerText="°C";}
-        if(n==='rain'){lbl.innerText="PIOGGIA";unit.innerText="mm";}
+        
+        // 2. Aggiorna Unità di Misura
+        let u = document.getElementById('pk-unit');
+        if(n === 'wind') u.innerText = 'km/h';
+        else if(n === 'temp') u.innerText = '°C';
+        else if(n === 'rain') u.innerText = 'mm';
+        
+        // 3. Resetta Valore (Così non vedi i km/h sulla temperatura per un istante)
+        document.getElementById('pk-val').innerText = "--";
+
+        // 4. Aggiorna Mappa
         updateMap();
     }
 

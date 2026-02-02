@@ -1,43 +1,37 @@
-name: build-data
+name: Update Meteo Data
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "15 */6 * * *"
-
-permissions:
-  contents: write
+    - cron: '0 0,6,12,18 * * *' # Ogni 6 ore
+  workflow_dispatch: # Permette avvio manuale
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libeccodes-dev
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y libeccodes-dev
+        pip install requests xarray numpy cfgrib
 
-      - name: Install python deps
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install numpy xarray scipy cfgrib requests
+    - name: Run Data Processor
+      run: python scripts/process_data.py
 
-      - name: Run updater
-        run: |
-          python scripts/update_data.py
-
-      - name: Commit data
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add data/meta.json data/*.json
-          git commit -m "Update ICON-2I data" || echo "No changes"
-          git push
+    - name: Commit and Push
+      run: |
+        git config --global user.name "MeteoBot"
+        git config --global user.email "bot@meteo.it"
+        # IL COMANDO MAGICO: Aggiunge tutto, anche le cartelle nuove
+        git add -A 
+        git commit -m "Auto-update weather data" || echo "Nessuna modifica"
+        git push
+        

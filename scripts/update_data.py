@@ -7,13 +7,13 @@ import sys
 import shutil
 from datetime import datetime, timedelta
 
-# --- CONFIGURAZIONE ---
 DATASET_ID = "ICON_2I_SURFACE_PRESSURE_LEVELS"
 API_LIST_URL = f"https://meteohub.agenziaitaliameteo.it/api/datasets/{DATASET_ID}/opendata"
 API_DOWNLOAD_URL = "https://meteohub.agenziaitaliameteo.it/api/opendata"
 
 FINAL_DIR = "data_weather"
 TEMP_DIR = "temp_processing"
+TEMP_FILE = "temp.grib2"
 
 LAT_MIN, LAT_MAX = 35.0, 39.5
 LON_MIN, LON_MAX = 11.0, 16.5
@@ -50,11 +50,10 @@ def process_data():
 
     for idx, filename in enumerate(file_list):
         print(f"   DL {filename}...", end=" ", flush=True)
-        local_path = "temp.grib2"
         try:
             with requests.get(f"{API_DOWNLOAD_URL}/{filename}", stream=True, timeout=60) as r:
                 r.raise_for_status()
-                with open(local_path, 'wb') as f:
+                with open(TEMP_FILE, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=1024*1024): f.write(chunk)
             print("OK", end=" ", flush=True)
         except:
@@ -62,14 +61,14 @@ def process_data():
             continue
 
         try:
-            ds_wind = xr.open_dataset(local_path, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'heightAboveGround', 'level': 10}})
-            try: ds_temp = xr.open_dataset(local_path, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'heightAboveGround', 'level': 2}})
+            ds_wind = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'heightAboveGround', 'level': 10}})
+            try: ds_temp = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'heightAboveGround', 'level': 2}})
             except: ds_temp = None
             
             ds_rain = None
-            try: ds_rain = xr.open_dataset(local_path, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'accum'}})
+            try: ds_rain = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'accum'}})
             except:
-                try: ds_rain = xr.open_dataset(local_path, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface'}})
+                try: ds_rain = xr.open_dataset(TEMP_FILE, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface'}})
                 except: pass
         except: continue
 
@@ -99,8 +98,6 @@ def process_data():
                     la1, lo1 = float(lat[0]), float(lon[0])
                     dx = float(abs(lon[1] - lon[0]))
                     dy = float(abs(lat[0] - lat[1]))
-                    
-                    # GEOMETRIA NECESSARIA PER EVITARE SCHERMO NERO
                     lo2 = lo1 + (nx - 1) * dx
                     la2 = la1 - (ny - 1) * dy
 
@@ -143,6 +140,9 @@ def process_data():
                         catalog.append({"file": out_name, "label": f"{valid_dt.strftime('%d/%m %H:00')}", "hour": step_hours})
             except: continue
         print(" -> OK")
+
+    # Pulizia file gigante (sicurezza extra)
+    if os.path.exists(TEMP_FILE): os.remove(TEMP_FILE)
 
     if catalog:
         catalog.sort(key=lambda x: x['hour'])

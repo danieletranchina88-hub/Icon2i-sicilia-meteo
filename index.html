@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Sicilia MeteoHub - FINAL</title>
+    <title>Sicilia MeteoHub</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@1.8.0/dist/leaflet-velocity.css" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet-velocity@1.8.0/dist/leaflet-velocity.js" crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@1.8.0/dist/leaflet-velocity.css" />
+    <script src="https://unpkg.com/leaflet-velocity@1.8.0/dist/leaflet-velocity.js"></script>
     
     <style>
         body { margin: 0; background: #1a1a1a; font-family: 'Segoe UI', sans-serif; color: white; overflow: hidden; }
@@ -28,7 +28,7 @@
         }
         .layer-btn {
             background: transparent; border: none; color: #ccc; padding: 12px 20px;
-            font-size: 14px; font-weight: 600; cursor: pointer; text-align: right; border-radius: 8px; transition: all 0.2s;
+            font-size: 14px; font-weight: 600; cursor: pointer; text-align: right; border-radius: 8px;
         }
         .layer-btn.active { background: #007bff; color: white; box-shadow: 0 0 10px rgba(0,123,255,0.4); }
 
@@ -47,7 +47,6 @@
             z-index: 5000; display: none; font-weight: bold; font-size: 1.1em;
             border: 1px solid #555;
         }
-        
         #picker-box { position: absolute; top: 20px; left: 20px; z-index: 1000; pointer-events: none; }
         #pk-val { font-size: 3em; font-weight: 800; text-shadow: 0 0 5px black; }
         #pk-unit { color: #ccc; font-size: 1.2em; }
@@ -79,7 +78,7 @@
 
 <script>
     function status(msg) { document.getElementById('status-box').innerText = msg; }
-    window.onerror = function(msg) { status("Error: " + msg); return false; };
+    window.onerror = function(msg) { status("Err: " + msg); return false; };
 
     var map, velocityLayer, heatCanvas;
     var currentData = null;
@@ -87,14 +86,13 @@
     var activeLayer = 'wind';
     var isPlaying = false;
 
-    // --- PALETTE COLORI ---
     const PALETTES = {
         temp: [
             {val:-10, c:[255,255,255, 0.6]}, {val:0, c:[200,200,255, 0.6]},
             {val:10, c:[0,200,100, 0.6]}, {val:20, c:[255,255,0, 0.6]},
             {val:30, c:[255,140,0, 0.6]}, {val:40, c:[200,0,0, 0.6]}
         ],
-        rain: [ // Azzurro -> Viola (Molto sensibile)
+        rain: [ 
             {val:0, c:[0,0,0,0]},
             {val:0.05, c:[0,200,255, 0.6]},   
             {val:2, c:[0,0,255, 0.7]},       
@@ -129,25 +127,23 @@
     }
 
     window.addEventListener('load', function() {
-        // Mappa base
         map = L.map('map', { zoomControl: false }).setView([37.5, 14.2], 8);
 
-        // 1. Sfondo Scuro (NO NOMI) - Livello più basso
+        // --- 1. Sfondo Nero ---
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
-        // 2. Livello Griglia Colori
+        // --- 2. Pane Griglia (Sopra Sfondo) ---
         map.createPane('gridPane'); map.getPane('gridPane').style.zIndex = 300; 
 
-        // 3. Livello Nomi Città (SOPRA I COLORI)
+        // --- 3. Pane Etichette (Sopra Griglia) ---
         map.createPane('labelsPane'); map.getPane('labelsPane').style.zIndex = 500; 
         map.getPane('labelsPane').style.pointerEvents = 'none';
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { pane: 'labelsPane' }).addTo(map);
 
-        // 4. Livello Particelle (SOPRA A TUTTO)
+        // --- 4. Pane Particelle (Top) ---
         map.createPane('velocityPane'); map.getPane('velocityPane').style.zIndex = 600; 
         map.getPane('velocityPane').style.pointerEvents = 'none';
 
-        // Definizione Griglia
         L.FullHeatmap = L.Layer.extend({
             onAdd: function(m) {
                 this._c = L.DomUtil.create('canvas', 'leaflet-layer');
@@ -214,12 +210,12 @@
 
     async function loadCatalog() {
         try {
-            status("Loading Catalog...");
+            status("Loading...");
             catalog = await fetchWithRetry('data_weather/catalog.json?t=' + Date.now());
             document.getElementById('time-slider').max = catalog.length - 1;
             document.getElementById('time-slider').addEventListener('input', (e) => loadStep(parseInt(e.target.value)));
             loadStep(0);
-        } catch(e) { status("Attesa dati (404)..."); }
+        } catch(e) { status("Err 404: Dati mancanti"); }
     }
 
     async function loadStep(index) {
@@ -228,9 +224,9 @@
         document.getElementById('loader').style.display = 'block';
         try {
             currentData = await fetchWithRetry('data_weather/' + catalog[index].file + '?nocache=' + Date.now());
-            status("Dati OK");
+            status("");
             updateMap();
-        } catch(e) { status("Errore Dati"); }
+        } catch(e) { status("Err Data"); }
         document.getElementById('loader').style.display = 'none';
     }
 

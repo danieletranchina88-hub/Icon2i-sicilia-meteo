@@ -14,13 +14,6 @@
         body { margin: 0; background: #1a1a1a; font-family: 'Segoe UI', sans-serif; color: white; overflow: hidden; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; background: #1a1a1a; }
         
-        #status-box {
-            position: absolute; bottom: 95px; left: 20px; 
-            color: #888; font-size: 10px; font-family: monospace;
-            background: rgba(0,0,0,0.6); padding: 2px 5px; border-radius: 4px;
-            pointer-events: none; z-index: 5000;
-        }
-
         #layer-menu {
             position: absolute; top: 15px; right: 15px; z-index: 1000;
             background: rgba(30,30,30,0.95); padding: 8px; border-radius: 12px;
@@ -50,6 +43,12 @@
         #picker-box { position: absolute; top: 20px; left: 20px; z-index: 1000; pointer-events: none; }
         #pk-val { font-size: 3em; font-weight: 800; text-shadow: 0 0 5px black; }
         #pk-unit { color: #ccc; font-size: 1.2em; }
+        #status-box {
+            position: absolute; bottom: 95px; left: 20px; 
+            color: #888; font-size: 10px; font-family: monospace;
+            background: rgba(0,0,0,0.6); padding: 2px 5px; border-radius: 4px;
+            pointer-events: none; z-index: 5000;
+        }
     </style>
 </head>
 <body>
@@ -129,18 +128,18 @@
     window.addEventListener('load', function() {
         map = L.map('map', { zoomControl: false }).setView([37.5, 14.2], 8);
 
-        // --- 1. Sfondo Nero ---
+        // 1. Sfondo Nero
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
-        // --- 2. Pane Griglia (Sopra Sfondo) ---
+        // 2. Pane Griglia (Sopra Sfondo)
         map.createPane('gridPane'); map.getPane('gridPane').style.zIndex = 300; 
 
-        // --- 3. Pane Etichette (Sopra Griglia) ---
+        // 3. Pane Etichette (Sopra Griglia)
         map.createPane('labelsPane'); map.getPane('labelsPane').style.zIndex = 500; 
         map.getPane('labelsPane').style.pointerEvents = 'none';
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { pane: 'labelsPane' }).addTo(map);
 
-        // --- 4. Pane Particelle (Top) ---
+        // 4. Pane Particelle (Top)
         map.createPane('velocityPane'); map.getPane('velocityPane').style.zIndex = 600; 
         map.getPane('velocityPane').style.pointerEvents = 'none';
 
@@ -210,12 +209,12 @@
 
     async function loadCatalog() {
         try {
-            status("Loading...");
+            status("Loading Catalog...");
             catalog = await fetchWithRetry('data_weather/catalog.json?t=' + Date.now());
             document.getElementById('time-slider').max = catalog.length - 1;
             document.getElementById('time-slider').addEventListener('input', (e) => loadStep(parseInt(e.target.value)));
             loadStep(0);
-        } catch(e) { status("Err 404: Dati mancanti"); }
+        } catch(e) { status("Attesa dati (404)..."); }
     }
 
     async function loadStep(index) {

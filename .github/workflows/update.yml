@@ -1,4 +1,4 @@
-name: Update Meteo Data
+name: Update_data_meteo
 
 on:
   schedule:

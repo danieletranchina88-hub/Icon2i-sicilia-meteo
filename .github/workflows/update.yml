@@ -2,12 +2,14 @@ name: Update Meteo Data
 
 on:
   schedule:
-    - cron: '0 0,6,12,18 * * *' # Ogni 6 ore
-  workflow_dispatch: # Permette avvio manuale
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout repo
@@ -24,14 +26,14 @@ jobs:
         pip install requests xarray numpy cfgrib
 
     - name: Run Data Processor
-      run: python scripts/process_data.py
+      # ECCO LA MODIFICA: Ora punta al TUO file corretto
+      run: python scripts/update_data.py
 
     - name: Commit and Push
       run: |
         git config --global user.name "MeteoBot"
         git config --global user.email "bot@meteo.it"
-        # IL COMANDO MAGICO: Aggiunge tutto, anche le cartelle nuove
-        git add -A 
+        git add .
         git commit -m "Auto-update weather data" || echo "Nessuna modifica"
         git push
         
